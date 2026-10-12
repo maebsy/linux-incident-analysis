@@ -1,0 +1,27 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  tools:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: ShellCheck (warning 이상 0건)
+        run: shellcheck -S warning tools/*.sh tests/*.sh
+      - name: Tool tests (monitor / diagnose-hang / analyze-schedule / compare)
+        run: bash tests/run-tests.sh
+      - name: Evidence summary is reproducible from raw results
+        run: |
+          bash tools/compare.sh evidence/oom-before/* evidence/oom-128/* evidence/oom-after/* \
+            evidence/cpu-before/* evidence/cpu-60/* evidence/cpu-after/* \
+            evidence/deadlock-before/* evidence/deadlock-after/* > /tmp/summary.md
+          diff -u evidence/summary.md /tmp/summary.md
+      - name: Scheduling verdict from raw logs
+        run: |
+          bash tools/analyze-schedule.sh evidence/schedule-runs/cpu-after/*/app.log \
+            evidence/oom-after/*/app.log evidence/cpu-after/*/app.log evidence/deadlock-after/*/app.log \
+            | grep -q 'VERDICT: 비선점 + 등록 순서와 다른 고정 순서'
