@@ -1,0 +1,6 @@
+# 줄바꿈을 LF 로 통일 (Windows 에서 clone 해도 diff/실행 결과가 같도록)
+* text=auto eol=lf
+*.sh text eol=lf
+*.png binary
+# 증거 원본은 그대로 보존 (diff 에서 줄바꿈 정규화 외 변형 없음)
+evidence/** -diff linguist-generated

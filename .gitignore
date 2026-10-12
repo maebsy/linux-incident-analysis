@@ -1,0 +1,14 @@
+# Python (tests/fake-agent-leak-app.py, tools/plot-evidence.py)
+__pycache__/
+*.py[cod]
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# 제공 바이너리는 저장소에 넣지 않는다 (용량·배포 권한)
+agent-leak-app-*
+agent-app-linux-*
+*.zip
