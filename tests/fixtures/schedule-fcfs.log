@@ -1,0 +1,7 @@
+2026-10-12 10:00:00,000 [INFO] [Scheduler] Registered Tasks: ['Thread-A', 'Thread-B', 'Thread-C']
+2026-10-12 10:00:00,100 [INFO] [Thread-A] Task Started. Calculating... (20%)
+2026-10-12 10:00:00,300 [INFO] [Thread-A] Task Completed. (100%)
+2026-10-12 10:00:00,350 [INFO] [Thread-B] Task Started. Calculating... (20%)
+2026-10-12 10:00:00,550 [INFO] [Thread-B] Task Completed. (100%)
+2026-10-12 10:00:00,600 [INFO] [Thread-C] Task Started. Calculating... (20%)
+2026-10-12 10:00:00,800 [INFO] [Thread-C] Task Completed. (100%)

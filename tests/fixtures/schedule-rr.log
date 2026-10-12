@@ -1,0 +1,7 @@
+2025-12-30 14:00:00,000 [INFO] [Scheduler] Registered Tasks: ['Thread-A', 'Thread-B', 'Thread-C']
+2025-12-30 14:00:00,100 [Thread-A] Task Started. Calculating... (10%)
+2025-12-30 14:00:00,150 [Thread-A] Calculating... (20%)
+2025-12-30 14:00:00,200 [Thread-B] Task Started. Calculating... (10%)
+2025-12-30 14:00:00,250 [Thread-B] Calculating... (20%)
+2025-12-30 14:00:00,300 [Thread-C] Task Started. Calculating... (10%)
+2025-12-30 14:00:00,350 [Thread-A] Resumed. Calculating... (30%)
