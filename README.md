@@ -10,14 +10,14 @@
 
 장애가 있는 바이너리 `agent-leak-app` 을 **변수 하나만 바꿔 가며 반복 실행**하고, 2초 간격 프로세스 관제 · 앱 로그 · `ps`/`top`/`strace` 출력을 원본 그대로 남겨, **"현상 → 증거 → 원인 → 조치"** 구조의 리포트 3건 + 보너스 분석 1건을 작성했습니다.
 
-| # | 리포트 | 한 줄 결론 | Before → After |
-| --- | --- | --- | --- |
-| 1 | [**[Bug] OOM** — MemoryGuard 자체 종료](issues/01-oom-memory-guard.md) | Heap 이 3초마다 +25MB 누수 → 한도 도달 시 앱이 `kill(자기 PID, SIGKILL)` | `MEMORY_LIMIT` 256 → 512 : **33s 종료 → 300s 생존** |
-| 2 | [**[Bug] CPU** — Watchdog SIGTERM](issues/02-cpu-watchdog.md) | 부하 상한(`CPU_MAX_OCCUPY`)이 고정 임계치 50% 보다 높아 반드시 초과 → SIGTERM | `CPU_MAX_OCCUPY` 90 → 50 : **25~37s 종료 → 180s 생존** |
-| 3 | [**[Bug] Deadlock** — 무응답](issues/03-deadlock.md) | 두 워커가 A→B / B→A 반대 순서로 락 획득 → 순환 대기, PID 는 살아 있음 | `MULTI_THREAD_ENABLE` true → false : **9초 후 정지 → 120s 정상 진행** |
-| ★ | [**[Analysis] 스케줄링 추론**](issues/04-scheduling-analysis.md) **(보너스)** | 선점 없음 + 등록 순서(A,B,C)와 다른 고정 순서 B→C→A 가 8/8 반복 | **비선점 Priority** 로 추론 |
+| # | 리포트 | 한 줄 결론 | Before → After | Issue |
+| --- | --- | --- | --- | --- |
+| 1 | [**[Bug] OOM** — MemoryGuard 자체 종료](issues/01-oom-memory-guard.md) | Heap 이 3초마다 +25MB 누수 → 한도 도달 시 앱이 `kill(자기 PID, SIGKILL)` | `MEMORY_LIMIT` 256 → 512 : **33s 종료 → 300s 생존** | [#1](https://github.com/maebsy/linux-incident-analysis/issues/1) |
+| 2 | [**[Bug] CPU** — Watchdog SIGTERM](issues/02-cpu-watchdog.md) | 부하 상한(`CPU_MAX_OCCUPY`)이 고정 임계치 50% 보다 높아 반드시 초과 → SIGTERM | `CPU_MAX_OCCUPY` 90 → 50 : **25~37s 종료 → 180s 생존** | [#2](https://github.com/maebsy/linux-incident-analysis/issues/2) |
+| 3 | [**[Bug] Deadlock** — 무응답](issues/03-deadlock.md) | 두 워커가 A→B / B→A 반대 순서로 락 획득 → 순환 대기, PID 는 살아 있음 | `MULTI_THREAD_ENABLE` true → false : **9초 후 정지 → 120s 정상 진행** | [#3](https://github.com/maebsy/linux-incident-analysis/issues/3) |
+| ★ | [**[Analysis] 스케줄링 추론**](issues/04-scheduling-analysis.md) **(보너스)** | 선점 없음 + 등록 순서(A,B,C)와 다른 고정 순서 B→C→A 가 8/8 반복 | **비선점 Priority** 로 추론 | [#4](https://github.com/maebsy/linux-incident-analysis/issues/4) |
 
-> 📌 GitHub Issues 에도 같은 내용으로 등록했습니다: [Issues 탭](https://github.com/maebsy/linux-incident-analysis/issues)
+> 📌 같은 내용을 GitHub Issues [#1](https://github.com/maebsy/linux-incident-analysis/issues/1) · [#2](https://github.com/maebsy/linux-incident-analysis/issues/2) · [#3](https://github.com/maebsy/linux-incident-analysis/issues/3) · [#4](https://github.com/maebsy/linux-incident-analysis/issues/4) 로 등록했습니다 (`tools/publish-issues.sh`).
 
 ## 목차
 
@@ -89,6 +89,7 @@ tools/run-all.sh                                              # 리포트의 모
 | [`tools/compare.sh`](tools/compare.sh) | Before/After 표 | 여러 `result.txt` → 마크다운 비교표 ([`evidence/summary.md`](evidence/summary.md)) |
 | [`tools/analyze-schedule.sh`](tools/analyze-schedule.sh) | **(보너스)** 스케줄링 역추론 | ms 타임라인 · 전환 횟수 · 연속 실행 여부 · 실행 간 순서 고정 여부 → RR / FCFS / Priority 판정 |
 | [`tools/plot-evidence.py`](tools/plot-evidence.py) | 리포트용 그래프 (보조) | evidence 원본을 가공 없이 시각화 → `docs/images/*.png` (판정에는 쓰지 않음) |
+| [`tools/publish-issues.sh`](tools/publish-issues.sh) | 리포트 → GitHub Issue 등록 | front matter 의 제목·라벨 사용, 상대 링크를 blob URL 로 변환, 중복 제목은 건너뜀 (REST API) |
 | [`scenarios/*.env`](scenarios/) | 실험 조건 | 각 Before/After 는 **환경변수 하나만** 다름. 경계 실험 `oom-128`, `cpu-60` 포함 |
 
 `monitor.sh` 출력 예:
@@ -152,7 +153,7 @@ tools/run-all.sh                                              # 리포트의 모
 | (선택) 본인 VM 에서 재현 | `sudo -iu agent-admin bash -c 'cd <repo> && tools/run-all.sh'` | 결과는 `evidence/<시나리오>/<새 시각>/` 에 추가됨. 생존 시간은 ±수 초 다를 수 있음 |
 | (선택) 터미널 스크린샷 | 위 실행 중 `ps -ef \| grep agent`, `top -H -p <PID>` 화면 캡처 → `docs/images/` | 미션은 "스크린샷 **또는** 로그 발췌" 라 현재 로그 발췌로 요건 충족 |
 | 저장소 공개 설정 | 제출이 링크 방식이면 Settings → General → Danger Zone → **Change visibility → Public** | 현재 Private |
-| GitHub Issues 확인 | Issues 탭에 리포트 4건이 등록돼 있는지 확인 | 등록 스크립트: 아래 [문서](#문서) 참고 |
+| GitHub Issues 확인 | [Issues 탭](https://github.com/maebsy/linux-incident-analysis/issues)에 #1~#4 가 보이는지 확인 | 이미 등록됨. 다시 만들 땐 `tools/publish-issues.sh` |
 
 ## 프로젝트 구조
 
@@ -171,6 +172,7 @@ linux-incident-analysis/
 │   ├── analyze-schedule.sh       # [보너스] 스케줄링 역추론
 │   ├── run-all.sh                # 전체 재현
 │   ├── plot-evidence.py          # 그래프 (보조)
+│   ├── publish-issues.sh         # issues/*.md → GitHub Issues
 │   └── env/base.env              # 공통 환경 (AGENT_HOME, 포트, 키 경로 …)
 ├── scenarios/                    # 실험 조건 (*.env, 변수 하나씩만 다름)
 ├── evidence/                     # 실행 원본 (17회) + summary.md
@@ -216,10 +218,9 @@ GitHub Actions 가 push 마다 ShellCheck(경고 0) + 테스트를 실행합니�
 | [evidence/README.md](evidence/README.md) | 실행 목록, 파일별 설명, 읽는 법 |
 | [.github/ISSUE_TEMPLATE/](.github/ISSUE_TEMPLATE/) | `[Bug]` 장애 리포트 / `[Analysis]` 분석 리포트 템플릿 |
 
-리포트를 GitHub Issue 로 등록할 때는 `issues/*.md` 의 front matter(`title`, `labels`)를 그대로 썼습니다.
+리포트는 [`tools/publish-issues.sh`](tools/publish-issues.sh) 로 GitHub Issue 에 등록했습니다. `issues/*.md` 의 front matter(`title`, `labels`)를 그대로 쓰고, 없는 라벨(`incident`, `memory`, `cpu`, `deadlock`, `analysis`)은 만들고, 저장소 상대 링크는 Issue 화면에서 열리도록 blob URL 로 바꿉니다. 같은 제목이 이미 있으면 건너뜁니다.
 
 ```bash
-# 예: gh CLI 로 등록 (front matter 제외한 본문)
-gh issue create --title "$(sed -n 's/^title: "\(.*\)"$/\1/p' issues/01-oom-memory-guard.md)" \
-  --label bug,incident,memory --body "$(sed '1,/^---$/{/^---$/!d};1,/^---$/d' issues/01-oom-memory-guard.md)"
+DRY_RUN=1 tools/publish-issues.sh   # 미리 보기
+tools/publish-issues.sh             # 등록 (gh auth 필요)
 ```
