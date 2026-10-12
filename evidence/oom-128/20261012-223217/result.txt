@@ -1,0 +1,15 @@
+scenario      : oom-128
+env           : MEMORY_LIMIT=128 CPU_MAX_OCCUPY=50 MULTI_THREAD_ENABLE=false
+binary        : agent-leak-app-x86 (launcher PID 5359)
+start         : 2026-10-12 22:32:17
+end           : 2026-10-12 22:32:35
+survival      : 18s
+exit_code     : 137 (128 + SIGKILL)
+status        : exited
+peak_rss      : 142.6MB
+peak_cpu      : 0.5%  (프로세스 실측, 1코어=100%)
+samples       : 8
+last_app_log  : 2026-10-12 22:32:35,138 [CRITICAL] [MemoryGuard] Self-terminating process 5398 to prevent system instability.
+key_lines     :
+  2026-10-12 22:32:35,138 [CRITICAL] [MemoryGuard] Memory limit exceeded (150MB >= 128MB) / (Recommend Over 256MB)
+  2026-10-12 22:32:35,138 [CRITICAL] [MemoryGuard] Self-terminating process 5398 to prevent system instability.

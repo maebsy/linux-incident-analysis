@@ -1,0 +1,14 @@
+scenario      : cpu-before
+env           : MEMORY_LIMIT=512 CPU_MAX_OCCUPY=90 MULTI_THREAD_ENABLE=false
+binary        : agent-leak-app-x86 (launcher PID 12875)
+start         : 2026-10-12 22:38:38
+end           : 2026-10-12 22:39:03
+survival      : 25s
+exit_code     : 143 (128 + SIGTERM)
+status        : exited
+peak_rss      : 17.6MB
+peak_cpu      : 2.5%  (프로세스 실측, 1코어=100%)
+samples       : 11
+last_app_log  : 2026-10-12 22:39:02,533 [CRITICAL] [CpuWorker] CPU Threshold Violated! (50.959999999999994%).
+key_lines     :
+  2026-10-12 22:39:02,533 [CRITICAL] [CpuWorker] CPU Threshold Violated! (50.959999999999994%).

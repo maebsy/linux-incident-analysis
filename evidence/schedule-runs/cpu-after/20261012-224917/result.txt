@@ -1,0 +1,14 @@
+scenario      : cpu-after
+env           : MEMORY_LIMIT=512 CPU_MAX_OCCUPY=50 MULTI_THREAD_ENABLE=false
+binary        : agent-leak-app-x86 (launcher PID 23617)
+start         : 2026-10-12 22:49:17
+end           : 2026-10-12 22:49:25
+survival      : 8s (관찰 종료 시점까지 생존 — 관찰자가 종료)
+exit_code     : 143 (128 + SIGTERM)
+status        : alive
+peak_rss      : 167.8MB
+peak_cpu      : 2.5%  (프로세스 실측, 1코어=100%)
+samples       : 9
+last_app_log  : 2026-10-12 22:49:36,187 [INFO] [CpuWorker] Current Load: 26.12%
+key_lines     :
+  (없음)

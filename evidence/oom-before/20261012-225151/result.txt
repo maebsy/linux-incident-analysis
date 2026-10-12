@@ -1,0 +1,15 @@
+scenario      : oom-before
+env           : MEMORY_LIMIT=256 CPU_MAX_OCCUPY=50 MULTI_THREAD_ENABLE=false
+binary        : agent-leak-app-x86 (launcher PID 27110)
+start         : 2026-10-12 22:51:51
+end           : 2026-10-12 22:52:25
+survival      : 34s
+exit_code     : 137 (128 + SIGKILL)
+status        : exited
+peak_rss      : 267.6MB
+peak_cpu      : 1.0%  (프로세스 실측, 1코어=100%)
+samples       : 15
+last_app_log  : 2026-10-12 22:52:24,484 [CRITICAL] [MemoryGuard] Self-terminating process 27157 to prevent system instability.
+key_lines     :
+  2026-10-12 22:52:24,484 [CRITICAL] [MemoryGuard] Memory limit exceeded (275MB >= 256MB) / (Recommend Over 256MB)
+  2026-10-12 22:52:24,484 [CRITICAL] [MemoryGuard] Self-terminating process 27157 to prevent system instability.

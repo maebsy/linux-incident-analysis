@@ -1,0 +1,5 @@
+4676  22:32:13.099574 kill(4676, SIGKILL) = ?
+4676  22:32:13.119066 +++ killed by SIGKILL +++
+4610  22:32:13.119249 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_KILLED, si_pid=4676, si_uid=30033, si_status=SIGKILL, si_utime=7 /* 0.07 s */, si_stime=16 /* 0.16 s */} ---
+4610  22:32:13.145051 tgkill(4610, 4610, SIGKILL) = ?
+4610  22:32:13.145449 +++ killed by SIGKILL +++

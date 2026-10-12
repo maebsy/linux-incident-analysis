@@ -1,0 +1,220 @@
+==================================================================
+log: evidence/schedule-runs/cpu-after/20261012-224828/app.log
+registered order : Thread-A,Thread-B,Thread-C
+time           thread      pct  gap(ms)
+22:48:30,403   Thread-B    20%        -
+22:48:30,453   Thread-B    40%       50
+22:48:30,504   Thread-B    60%       51
+22:48:30,555   Thread-B    80%       51
+22:48:30,606   Thread-B   100%       51
+22:48:30,657   Thread-C    20%       51   <- switch
+22:48:30,708   Thread-C    40%       51
+22:48:30,758   Thread-C    60%       50
+22:48:30,809   Thread-C    80%       51
+22:48:30,860   Thread-C   100%       51
+22:48:30,910   Thread-A    20%       50   <- switch
+22:48:30,961   Thread-A    40%       51
+22:48:31,012   Thread-A    60%       51
+22:48:31,063   Thread-A    80%       51
+22:48:31,113   Thread-A   100%       50
+
+execution order  : Thread-B,Thread-C,Thread-A
+context switches : 2 (threads 3 → 연속 실행이면 2)
+each runs to 100% before next : yes (비선점)
+  Thread-B: 22:48:30,403 ~ 22:48:30,606 (203 ms, 5 steps)
+  Thread-C: 22:48:30,657 ~ 22:48:30,860 (203 ms, 5 steps)
+  Thread-A: 22:48:30,910 ~ 22:48:31,113 (203 ms, 5 steps)
+==================================================================
+log: evidence/schedule-runs/cpu-after/20261012-224852/app.log
+registered order : Thread-A,Thread-B,Thread-C
+time           thread      pct  gap(ms)
+22:48:55,086   Thread-B    20%        -
+22:48:55,136   Thread-B    40%       50
+22:48:55,187   Thread-B    60%       51
+22:48:55,238   Thread-B    80%       51
+22:48:55,289   Thread-B   100%       51
+22:48:55,340   Thread-C    20%       51   <- switch
+22:48:55,390   Thread-C    40%       50
+22:48:55,441   Thread-C    60%       51
+22:48:55,492   Thread-C    80%       51
+22:48:55,543   Thread-C   100%       51
+22:48:55,593   Thread-A    20%       50   <- switch
+22:48:55,644   Thread-A    40%       51
+22:48:55,695   Thread-A    60%       51
+22:48:55,745   Thread-A    80%       50
+22:48:55,796   Thread-A   100%       51
+
+execution order  : Thread-B,Thread-C,Thread-A
+context switches : 2 (threads 3 → 연속 실행이면 2)
+each runs to 100% before next : yes (비선점)
+  Thread-B: 22:48:55,086 ~ 22:48:55,289 (203 ms, 5 steps)
+  Thread-C: 22:48:55,340 ~ 22:48:55,543 (203 ms, 5 steps)
+  Thread-A: 22:48:55,593 ~ 22:48:55,796 (203 ms, 5 steps)
+==================================================================
+log: evidence/schedule-runs/cpu-after/20261012-224917/app.log
+registered order : Thread-A,Thread-B,Thread-C
+time           thread      pct  gap(ms)
+22:49:19,815   Thread-B    20%        -
+22:49:19,866   Thread-B    40%       51
+22:49:19,917   Thread-B    60%       51
+22:49:19,968   Thread-B    80%       51
+22:49:20,018   Thread-B   100%       50
+22:49:20,069   Thread-C    20%       51   <- switch
+22:49:20,121   Thread-C    40%       52
+22:49:20,172   Thread-C    60%       51
+22:49:20,223   Thread-C    80%       51
+22:49:20,273   Thread-C   100%       50
+22:49:20,324   Thread-A    20%       51   <- switch
+22:49:20,375   Thread-A    40%       51
+22:49:20,426   Thread-A    60%       51
+22:49:20,476   Thread-A    80%       50
+22:49:20,527   Thread-A   100%       51
+
+execution order  : Thread-B,Thread-C,Thread-A
+context switches : 2 (threads 3 → 연속 실행이면 2)
+each runs to 100% before next : yes (비선점)
+  Thread-B: 22:49:19,815 ~ 22:49:20,018 (203 ms, 5 steps)
+  Thread-C: 22:49:20,069 ~ 22:49:20,273 (204 ms, 5 steps)
+  Thread-A: 22:49:20,324 ~ 22:49:20,527 (203 ms, 5 steps)
+==================================================================
+log: evidence/schedule-runs/cpu-after/20261012-224942/app.log
+registered order : Thread-A,Thread-B,Thread-C
+time           thread      pct  gap(ms)
+22:49:44,505   Thread-B    20%        -
+22:49:44,556   Thread-B    40%       51
+22:49:44,606   Thread-B    60%       50
+22:49:44,657   Thread-B    80%       51
+22:49:44,708   Thread-B   100%       51
+22:49:44,759   Thread-C    20%       51   <- switch
+22:49:44,809   Thread-C    40%       50
+22:49:44,860   Thread-C    60%       51
+22:49:44,911   Thread-C    80%       51
+22:49:44,962   Thread-C   100%       51
+22:49:45,012   Thread-A    20%       50   <- switch
+22:49:45,063   Thread-A    40%       51
+22:49:45,114   Thread-A    60%       51
+22:49:45,165   Thread-A    80%       51
+22:49:45,216   Thread-A   100%       51
+
+execution order  : Thread-B,Thread-C,Thread-A
+context switches : 2 (threads 3 → 연속 실행이면 2)
+each runs to 100% before next : yes (비선점)
+  Thread-B: 22:49:44,505 ~ 22:49:44,708 (203 ms, 5 steps)
+  Thread-C: 22:49:44,759 ~ 22:49:44,962 (203 ms, 5 steps)
+  Thread-A: 22:49:45,012 ~ 22:49:45,216 (204 ms, 5 steps)
+==================================================================
+log: evidence/schedule-runs/cpu-after/20261012-225007/app.log
+registered order : Thread-A,Thread-B,Thread-C
+time           thread      pct  gap(ms)
+22:50:09,198   Thread-B    20%        -
+22:50:09,249   Thread-B    40%       51
+22:50:09,299   Thread-B    60%       50
+22:50:09,350   Thread-B    80%       51
+22:50:09,401   Thread-B   100%       51
+22:50:09,452   Thread-C    20%       51   <- switch
+22:50:09,502   Thread-C    40%       50
+22:50:09,553   Thread-C    60%       51
+22:50:09,604   Thread-C    80%       51
+22:50:09,654   Thread-C   100%       50
+22:50:09,705   Thread-A    20%       51   <- switch
+22:50:09,756   Thread-A    40%       51
+22:50:09,806   Thread-A    60%       50
+22:50:09,857   Thread-A    80%       51
+22:50:09,908   Thread-A   100%       51
+
+execution order  : Thread-B,Thread-C,Thread-A
+context switches : 2 (threads 3 → 연속 실행이면 2)
+each runs to 100% before next : yes (비선점)
+  Thread-B: 22:50:09,198 ~ 22:50:09,401 (203 ms, 5 steps)
+  Thread-C: 22:50:09,452 ~ 22:50:09,654 (202 ms, 5 steps)
+  Thread-A: 22:50:09,705 ~ 22:50:09,908 (203 ms, 5 steps)
+==================================================================
+log: evidence/oom-after/20261012-223240/app.log
+registered order : Thread-A,Thread-B,Thread-C
+time           thread      pct  gap(ms)
+22:32:43,167   Thread-B    20%        -
+22:32:43,217   Thread-B    40%       50
+22:32:43,268   Thread-B    60%       51
+22:32:43,319   Thread-B    80%       51
+22:32:43,369   Thread-B   100%       50
+22:32:43,420   Thread-C    20%       51   <- switch
+22:32:43,471   Thread-C    40%       51
+22:32:43,522   Thread-C    60%       51
+22:32:43,574   Thread-C    80%       52
+22:32:43,624   Thread-C   100%       50
+22:32:43,675   Thread-A    20%       51   <- switch
+22:32:43,726   Thread-A    40%       51
+22:32:43,776   Thread-A    60%       50
+22:32:43,827   Thread-A    80%       51
+22:32:43,878   Thread-A   100%       51
+
+execution order  : Thread-B,Thread-C,Thread-A
+context switches : 2 (threads 3 → 연속 실행이면 2)
+each runs to 100% before next : yes (비선점)
+  Thread-B: 22:32:43,167 ~ 22:32:43,369 (202 ms, 5 steps)
+  Thread-C: 22:32:43,420 ~ 22:32:43,624 (204 ms, 5 steps)
+  Thread-A: 22:32:43,675 ~ 22:32:43,878 (203 ms, 5 steps)
+==================================================================
+log: evidence/cpu-after/20261012-223936/app.log
+registered order : Thread-A,Thread-B,Thread-C
+time           thread      pct  gap(ms)
+22:39:38,977   Thread-B    20%        -
+22:39:39,027   Thread-B    40%       50
+22:39:39,078   Thread-B    60%       51
+22:39:39,129   Thread-B    80%       51
+22:39:39,180   Thread-B   100%       51
+22:39:39,231   Thread-C    20%       51   <- switch
+22:39:39,281   Thread-C    40%       50
+22:39:39,332   Thread-C    60%       51
+22:39:39,383   Thread-C    80%       51
+22:39:39,434   Thread-C   100%       51
+22:39:39,484   Thread-A    20%       50   <- switch
+22:39:39,535   Thread-A    40%       51
+22:39:39,586   Thread-A    60%       51
+22:39:39,637   Thread-A    80%       51
+22:39:39,688   Thread-A   100%       51
+
+execution order  : Thread-B,Thread-C,Thread-A
+context switches : 2 (threads 3 → 연속 실행이면 2)
+each runs to 100% before next : yes (비선점)
+  Thread-B: 22:39:38,977 ~ 22:39:39,180 (203 ms, 5 steps)
+  Thread-C: 22:39:39,231 ~ 22:39:39,434 (203 ms, 5 steps)
+  Thread-A: 22:39:39,484 ~ 22:39:39,688 (204 ms, 5 steps)
+==================================================================
+log: evidence/deadlock-after/20261012-224440/app.log
+registered order : Thread-A,Thread-B,Thread-C
+time           thread      pct  gap(ms)
+22:44:42,597   Thread-B    20%        -
+22:44:42,647   Thread-B    40%       50
+22:44:42,698   Thread-B    60%       51
+22:44:42,749   Thread-B    80%       51
+22:44:42,800   Thread-B   100%       51
+22:44:42,850   Thread-C    20%       50   <- switch
+22:44:42,901   Thread-C    40%       51
+22:44:42,952   Thread-C    60%       51
+22:44:43,003   Thread-C    80%       51
+22:44:43,054   Thread-C   100%       51
+22:44:43,104   Thread-A    20%       50   <- switch
+22:44:43,155   Thread-A    40%       51
+22:44:43,206   Thread-A    60%       51
+22:44:43,256   Thread-A    80%       50
+22:44:43,307   Thread-A   100%       51
+
+execution order  : Thread-B,Thread-C,Thread-A
+context switches : 2 (threads 3 → 연속 실행이면 2)
+each runs to 100% before next : yes (비선점)
+  Thread-B: 22:44:42,597 ~ 22:44:42,800 (203 ms, 5 steps)
+  Thread-C: 22:44:42,850 ~ 22:44:43,054 (204 ms, 5 steps)
+  Thread-A: 22:44:43,104 ~ 22:44:43,307 (203 ms, 5 steps)
+==================================================================
+SUMMARY (8 runs)
+  run 1: order=Thread-B,Thread-C,Thread-A preemptive=no same_as_registered=no
+  run 2: order=Thread-B,Thread-C,Thread-A preemptive=no same_as_registered=no
+  run 3: order=Thread-B,Thread-C,Thread-A preemptive=no same_as_registered=no
+  run 4: order=Thread-B,Thread-C,Thread-A preemptive=no same_as_registered=no
+  run 5: order=Thread-B,Thread-C,Thread-A preemptive=no same_as_registered=no
+  run 6: order=Thread-B,Thread-C,Thread-A preemptive=no same_as_registered=no
+  run 7: order=Thread-B,Thread-C,Thread-A preemptive=no same_as_registered=no
+  run 8: order=Thread-B,Thread-C,Thread-A preemptive=no same_as_registered=no
+  distinct orders: 1 / preemptive runs: 0 / runs matching registration: 0
+VERDICT: 비선점 + 등록 순서와 다른 고정 순서가 매번 반복 → Priority(비선점, 우선순위 순)

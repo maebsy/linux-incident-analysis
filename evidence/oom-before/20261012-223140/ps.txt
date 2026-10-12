@@ -1,0 +1,7 @@
+$ ps -ef | grep agent-leak
+agent-a+  4605  4594  0 22:31 ?        00:00:00 strace -f -tt -e trace=kill,tgkill,tkill,exit_group -o /tmp/lia/evidence/oom-before/20261012-223140/trace.txt /home/agent-admin/agent-app/agent-leak-app-x86
+agent-a+  4610  4605  2 22:31 ?        00:00:00 /home/agent-admin/agent-app/agent-leak-app-x86
+agent-a+  4676  4610  2 22:31 ?        00:00:00 /home/agent-admin/agent-app/agent-leak-app-x86
+
+$ pstree -p 4605
+strace(4605)---agent-leak-app-(4610)---agent-leak-app-(4676)

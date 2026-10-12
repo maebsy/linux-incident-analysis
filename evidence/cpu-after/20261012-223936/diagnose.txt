@@ -1,0 +1,53 @@
+# diagnose-hang.sh  PID=14211  window=10s  2026-10-12 22:42:38
+
+===== 1. 프로세스 존재 (ps -ef) =====
+$ ps -ef | grep '[a]gent-leak'
+agent-a+ 14164 14153  0 22:39 ?        00:00:00 /home/agent-admin/agent-app/agent-leak-app-x86
+agent-a+ 14211 14164  1 22:39 ?        00:00:02 /home/agent-admin/agent-app/agent-leak-app-x86
+$ pstree -p 14164 2>/dev/null || true
+agent-leak-app-(14164)---agent-leak-app-(14211)-+-{agent-leak-app-}(14477)
+                                                `-{agent-leak-app-}(14486)
+
+===== 2. 스레드 목록 (ps -L: 스레드별 상태·CPU·커널 대기 지점) =====
+$ ps -L -o pid,tid,stat,pcpu,rss,wchan:20,comm -p 14211
+  PID   TID STAT %CPU   RSS WCHAN                COMMAND
+14211 14211 SNl   0.0 427940 futex_do_wait       agent-leak-app-
+14211 14477 SNl   0.4 427940 poll_schedule_timeou agent-leak-app-
+14211 14486 SNl   0.8 427940 poll_schedule_timeou agent-leak-app-
+
+===== 3. top -H (스레드 단위, 1회 배치 출력) =====
+$ top -H -b -n 1 -p 14211 | sed -n '1,4p;7,20p'
+top - 22:42:38 up 30 min,  0 user,  load average: 0.10, 0.11, 0.08
+Threads:   3 total,   0 running,   3 sleeping,   0 stopped,   0 zombie
+%Cpu(s):  4.8 us,  4.8 sy,  0.0 ni, 90.5 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st 
+MiB Mem :   8029.6 total,   6994.3 free,    946.8 used,    308.8 buff/cache     
+  PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND
+14211 agent-a+  30  10  629980 427940   9724 S   0.0   5.2   0:00.07 agent-lea+
+14477 agent-a+  30  10  629980 427940   9724 S   0.0   5.2   0:00.85 agent-lea+
+14486 agent-a+  30  10  629980 427940   9724 S   0.0   5.2   0:01.44 agent-lea+
+
+===== 4. 10초 간격 스냅샷 비교 (/proc/14211/task/*/stat) =====
+TID      STATE1 STATE2       TICKS1       TICKS2    DELTA
+14211    S      S                 7            7        0
+14477    S      S                85           90        5
+14486    S      S               144          149        5
+
+CPU ticks 변화 합계 : 10  (CLK_TCK=100 → 1.00% CPU)
+RSS                 : 427940kB → 504748kB (변화 76808kB)
+앱 로그 줄 수       : 185 → 191   마지막 수정: 2026-10-12 22:42:37 → 2026-10-12 22:42:46
+
+===== 5. 앱 로그 마지막 기록 =====
+2026-10-12 22:42:36,508 [INFO] [MemoryWorker] Current Heap: 400MB
+2026-10-12 22:42:37,322 [INFO] [CpuWorker] Current Load: 9.48%
+2026-10-12 22:42:39,541 [INFO] [MemoryWorker] Current Heap: 425MB
+2026-10-12 22:42:40,438 [INFO] [CpuWorker] Current Load: 12.46%
+2026-10-12 22:42:42,566 [INFO] [MemoryWorker] Current Heap: 450MB
+2026-10-12 22:42:43,555 [INFO] [CpuWorker] Current Load: 13.03%
+2026-10-12 22:42:45,593 [INFO] [MemoryWorker] Current Heap: 475MB
+2026-10-12 22:42:46,668 [INFO] [CpuWorker] Current Load: 18.86%
+
+===== 6. 락 보유/대기 관계 (로그에서 추출) =====
+
+===== 판정 =====
+관측: CPU 사용 있음(10 ticks) 메모리 변화 로그 진행 스레드 3/3 개 sleep
+결론: 진행 중 — 멈춘 상태가 아니다.

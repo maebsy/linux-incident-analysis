@@ -1,0 +1,7 @@
+12953 22:39:02.536661 kill(12953, SIGTERM) = 0
+12953 22:39:02.536814 --- SIGTERM {si_signo=SIGTERM, si_code=SI_USER, si_pid=12953, si_uid=30033} ---
+12953 22:39:02.538887 +++ killed by SIGTERM +++
+12880 22:39:02.539027 --- SIGCHLD {si_signo=SIGCHLD, si_code=CLD_KILLED, si_pid=12953, si_uid=30033, si_status=SIGTERM, si_utime=26 /* 0.26 s */, si_stime=2 /* 0.02 s */} ---
+12880 22:39:02.556075 tgkill(12880, 12880, SIGTERM) = 0
+12880 22:39:02.556212 --- SIGTERM {si_signo=SIGTERM, si_code=SI_TKILL, si_pid=12880, si_uid=30033} ---
+12880 22:39:02.556532 +++ killed by SIGTERM +++

@@ -1,0 +1,57 @@
+# diagnose-hang.sh  PID=17428  window=10s  2026-10-12 22:44:25
+
+===== 1. 프로세스 존재 (ps -ef) =====
+$ ps -ef | grep '[a]gent-leak'
+agent-a+ 17379 17368  0 22:42 ?        00:00:00 /home/agent-admin/agent-app/agent-leak-app-x86
+agent-a+ 17428 17379  0 22:42 ?        00:00:00 /home/agent-admin/agent-app/agent-leak-app-x86
+$ pstree -p 17379 2>/dev/null || true
+agent-leak-app-(17379)---agent-leak-app-(17428)-+-{agent-leak-app-}(17767)
+                                                `-{agent-leak-app-}(17768)
+
+===== 2. 스레드 목록 (ps -L: 스레드별 상태·CPU·커널 대기 지점) =====
+$ ps -L -o pid,tid,stat,pcpu,rss,wchan:20,comm -p 17428
+  PID   TID STAT %CPU   RSS WCHAN                COMMAND
+17428 17428 SNl   0.0 18100 futex_do_wait        agent-leak-app-
+17428 17767 SNl   0.0 18100 futex_do_wait        agent-leak-app-
+17428 17768 SNl   0.0 18100 futex_do_wait        agent-leak-app-
+
+===== 3. top -H (스레드 단위, 1회 배치 출력) =====
+$ top -H -b -n 1 -p 17428 | sed -n '1,4p;7,20p'
+top - 22:44:25 up 32 min,  0 user,  load average: 0.46, 0.17, 0.10
+Threads:   3 total,   0 running,   3 sleeping,   0 stopped,   0 zombie
+%Cpu(s):  5.0 us,  0.0 sy,  0.0 ni, 95.0 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st 
+MiB Mem :   8029.6 total,   7419.0 free,    521.7 used,    309.2 buff/cache     
+  PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND
+17428 agent-a+  30  10  171228  18100   9660 S   0.0   0.2   0:00.06 agent-lea+
+17767 agent-a+  30  10  171228  18100   9660 S   0.0   0.2   0:00.00 agent-lea+
+17768 agent-a+  30  10  171228  18100   9660 S   0.0   0.2   0:00.00 agent-lea+
+
+===== 4. 10초 간격 스냅샷 비교 (/proc/17428/task/*/stat) =====
+TID      STATE1 STATE2       TICKS1       TICKS2    DELTA
+17428    S      S                 6            6        0
+17767    S      S                 0            0        0
+17768    S      S                 0            0        0
+
+CPU ticks 변화 합계 : 0  (CLK_TCK=100 → 0.00% CPU)
+RSS                 : 18100kB → 18100kB (변화 0kB)
+앱 로그 줄 수       : 42 → 42   마지막 수정: 2026-10-12 22:43:02 → 2026-10-12 22:43:02
+
+===== 5. 앱 로그 마지막 기록 =====
+2026-10-12 22:43:00,584 [INFO] [AgentWorker] Waiting for worker threads to complete transactions...
+2026-10-12 22:43:00,584 [INFO] [AgentWorker][Worker-Thread-2] LOCK ACQUIRED: [Socket_Pool_B]. (Holding...)
+2026-10-12 22:43:00,584 [INFO] [AgentWorker][Worker-Thread-1] Processing critical data in Memory A...
+2026-10-12 22:43:00,585 [INFO] [AgentWorker][Worker-Thread-2] Establishing network connections in Pool B...
+2026-10-12 22:43:02,594 [INFO] [AgentWorker][Worker-Thread-2] Need resource [Shared_Memory_A] to write logs.
+2026-10-12 22:43:02,595 [INFO] [AgentWorker][Worker-Thread-2] WAITING for [Shared_Memory_A]... (Status: BLOCKED)
+2026-10-12 22:43:02,595 [INFO] [AgentWorker][Worker-Thread-1] Need resource [Socket_Pool_B] to finish job.
+2026-10-12 22:43:02,595 [INFO] [AgentWorker][Worker-Thread-1] WAITING for [Socket_Pool_B]... (Status: BLOCKED)
+
+===== 6. 락 보유/대기 관계 (로그에서 추출) =====
+Worker-Thread-1 holds  Shared_Memory_A
+Worker-Thread-2 holds  Socket_Pool_B
+Worker-Thread-2 waits  Shared_Memory_A
+Worker-Thread-1 waits  Socket_Pool_B
+
+===== 판정 =====
+관측: CPU 사용 0 메모리 고정 로그 정지 스레드 3/3 개 sleep
+결론: DEADLOCK 의심 — 프로세스는 살아 있으나 모든 스레드가 대기 상태로 진행이 없고, 로그상 서로의 자원을 기다리는 순환 대기(2 건)가 있다.

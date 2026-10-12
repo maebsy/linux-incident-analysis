@@ -1,0 +1,15 @@
+scenario      : deadlock-before
+env           : MEMORY_LIMIT=512 CPU_MAX_OCCUPY=50 MULTI_THREAD_ENABLE=true
+binary        : agent-leak-app-x86 (launcher PID 17379)
+start         : 2026-10-12 22:42:53
+end           : 2026-10-12 22:44:23
+survival      : 90s (관찰 종료 시점까지 생존 — 관찰자가 종료)
+exit_code     : 143 (128 + SIGTERM)
+status        : alive
+peak_rss      : 17.7MB
+peak_cpu      : 0.0%  (프로세스 실측, 1코어=100%)
+samples       : 49
+last_app_log  : 2026-10-12 22:43:02,595 [INFO] [AgentWorker][Worker-Thread-1] WAITING for [Socket_Pool_B]... (Status: BLOCKED)
+key_lines     :
+  2026-10-12 22:43:02,595 [INFO] [AgentWorker][Worker-Thread-2] WAITING for [Shared_Memory_A]... (Status: BLOCKED)
+  2026-10-12 22:43:02,595 [INFO] [AgentWorker][Worker-Thread-1] WAITING for [Socket_Pool_B]... (Status: BLOCKED)

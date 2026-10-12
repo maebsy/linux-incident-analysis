@@ -1,0 +1,16 @@
+scenario      : cpu-after
+env           : MEMORY_LIMIT=512 CPU_MAX_OCCUPY=50 MULTI_THREAD_ENABLE=false
+binary        : agent-leak-app-x86 (launcher PID 14164)
+start         : 2026-10-12 22:39:36
+end           : 2026-10-12 22:42:36
+survival      : 180s (관찰 종료 시점까지 생존 — 관찰자가 종료)
+exit_code     : 143 (128 + SIGTERM)
+status        : alive
+peak_rss      : 518.0MB
+peak_cpu      : 3.5%  (프로세스 실측, 1코어=100%)
+samples       : 93
+last_app_log  : 2026-10-12 22:42:46,668 [INFO] [CpuWorker] Current Load: 18.86%
+key_lines     :
+  2026-10-12 22:41:05,978 [INFO] [CpuWorker] Peak reached (50.00%). Starting cooldown...
+  >>> [SYSTEM] MEMORY RECOVERED (Cache Cleared) <<<
+  2026-10-12 22:42:11,392 [INFO] [CpuWorker] Peak reached (50.00%). Starting cooldown...

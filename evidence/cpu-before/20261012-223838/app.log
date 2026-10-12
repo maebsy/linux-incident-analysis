@@ -1,0 +1,39 @@
+>>> Starting Agent Boot Sequence...
+[1/6] Checking User Account               [OK]
+   ... Running as service user 'agent-admin' (uid=30033)
+[2/6] Verifying Environment Variables     [OK]
+   ... All required Envs correct
+[3/6] Checking Required Files             [OK]
+   ... Verified 'secret.key' with correct key string.
+[4/6] Checking Port Availability          [OK]
+   ... Port 15034 is available.
+[5/6] Verifying Log Permission            [OK]
+   ... Log directory is writable: /var/log/agent-app
+[6/6] Verifying Mission Environment       [OK]
+   ... MEMORY_LIMIT=512MB, CPU_MAX_OCCUPY=90%, MULTI_THREAD_ENABLE=False
+------------------------------------------------------------
+All Boot Checks Passed!
+Agent READY
+2026-10-12 22:38:38,592 [INFO] [SafetyGuard] Process priority lowered (nice=10).
+2026-10-12 22:38:38,593 [INFO] Agent listening at port 15034
+
+==================================================
+ [ Agent Initiate ] Resource Check 
+==================================================
+ [ MEMORY ] Limit: 512MB 		[ OK ]
+ [ CPU    ] Limit: 90%  		[ WARNING: Recommend Under 50% ]
+ [ THREAD ] Concurrency: False 		[ OK ]
+--------------------------------------------------
+ >>> SYSTEM STATUS: STABLE. STARTING WORKLOAD MONITORING...
+==================================================
+
+2026-10-12 22:38:40,603 [INFO] [CpuWorker] Started. Maximum CPU Limit: 90%
+2026-10-12 22:38:40,604 [INFO] [CpuWorker] Current Load: 5.00%
+2026-10-12 22:38:43,722 [INFO] [CpuWorker] Current Load: 11.83%
+2026-10-12 22:38:46,840 [INFO] [CpuWorker] Current Load: 19.15%
+2026-10-12 22:38:49,960 [INFO] [CpuWorker] Current Load: 24.10%
+2026-10-12 22:38:53,079 [INFO] [CpuWorker] Current Load: 31.40%
+2026-10-12 22:38:56,195 [INFO] [CpuWorker] Current Load: 34.47%
+2026-10-12 22:38:59,312 [INFO] [CpuWorker] Current Load: 44.23%
+2026-10-12 22:39:02,430 [INFO] [CpuWorker] Current Load: 50.96%
+2026-10-12 22:39:02,533 [CRITICAL] [CpuWorker] CPU Threshold Violated! (50.959999999999994%).
