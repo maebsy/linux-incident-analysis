@@ -25,3 +25,13 @@ jobs:
           bash tools/analyze-schedule.sh evidence/schedule-runs/cpu-after/*/app.log \
             evidence/oom-after/*/app.log evidence/cpu-after/*/app.log evidence/deadlock-after/*/app.log \
             | grep -q 'VERDICT: 비선점 + 등록 순서와 다른 고정 순서'
+
+  docker:
+    # Dockerfile 이 깨지지 않았는지: 이미지를 빌드하고 기본 명령(테스트)을 컨테이너에서 실행
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Docker 이미지 빌드
+        run: docker build -t linux-incident-analysis .
+      - name: 컨테이너에서 테스트
+        run: docker run --rm --cap-add SYS_PTRACE linux-incident-analysis

@@ -209,6 +209,17 @@ bash tests/run-tests.sh
 
 GitHub Actions 가 push 마다 ShellCheck(경고 0) + 테스트를 실행합니다: [`.github/workflows/tests.yml`](.github/workflows/tests.yml)
 
+### Docker 로 실행 (CI 와 같은 Ubuntu 24.04)
+
+도구 테스트를 CI 와 같은 OS 에서 돌립니다. 컨테이너는 자기 PID 네임스페이스를 가져서, 프로세스가 많은 데스크톱에서도 `/proc` 관측 조건이 같습니다.
+
+```bash
+docker build -t linux-incident-analysis .
+docker run --rm --cap-add SYS_PTRACE linux-incident-analysis     # ShellCheck + 도구 테스트 (strace 에 ptrace 권한 필요)
+```
+
+실제 장애 재현(`agent-leak-app` 실행, 계정·권한 설정)은 "직접 수행해야 하는 부분" 의 VM 절차를 따릅니다. VS Code **Dev Containers** 나 GitHub Codespaces 로 열면 같은 환경에서 작업할 수 있습니다 (`.devcontainer/`).
+
 ## 문서
 
 | 문서 | 내용 |

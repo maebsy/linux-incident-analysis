@@ -1,0 +1,6 @@
+{
+  "name": "linux-incident-analysis",
+  "build": { "dockerfile": "../Dockerfile", "context": ".." },
+  "runArgs": ["--cap-add=SYS_PTRACE"],
+  "customizations": { "vscode": { "extensions": ["timonwong.shellcheck"] } }
+}
