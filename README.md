@@ -179,7 +179,8 @@ linux-incident-analysis/
 ├── docs/
 │   ├── methodology.md            # 분석 방법론
 │   ├── checklist.md              # 체크리스트 답변
-│   └── images/                   # 그래프
+│   ├── images/                   # 그래프
+│   └── presentation.html         # 동료 평가 발표 슬라이드
 ├── tests/                        # 가짜 앱 + fixtures 로 도구 검증
 └── .github/                      # Issue 템플릿, CI
 ```
@@ -226,6 +227,7 @@ docker run --rm --cap-add SYS_PTRACE linux-incident-analysis     # ShellCheck + 
 | --- | --- |
 | [docs/methodology.md](docs/methodology.md) | 실험 설계, monitor.sh 필드, CPU 도구 비교, 종료 주체 판별(앱 vs 커널 vs 외부), 무응답 진단 순서, 환경과 한계 |
 | [docs/checklist.md](docs/checklist.md) | 미션 체크리스트 항목 1~4 답변 (도구·옵션, 판단 흐름, 원리, 확장 질문) |
+| [docs/presentation.html](docs/presentation.html) | 동료 평가 발표 슬라이드 68장 (브라우저로 열기, ← → 넘기기 · N 발표자 노트 · 인쇄하면 PDF) |
 | [evidence/README.md](evidence/README.md) | 실행 목록, 파일별 설명, 읽는 법 |
 | [.github/ISSUE_TEMPLATE/](.github/ISSUE_TEMPLATE/) | `[Bug]` 장애 리포트 / `[Analysis]` 분석 리포트 템플릿 |
 
