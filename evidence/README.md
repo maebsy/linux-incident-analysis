@@ -47,6 +47,19 @@
 
 원래 VM 과 다른 점: `/proc/meminfo` 는 컨테이너가 아니라 호스트(약 15.6GB) 값이라 `SYS_MEM`·`MEM%` 가 VM 기록과 다릅니다(판단은 RSS MB 로 함). 앱 내부 타이머 기반 동작(누수 3.03초 · 25MB, 정지 시점, 부하 상승)은 VM 결과와 같게 재현됐습니다.
 
+## 2차 평가 후속 실험 — [`followup2/`](followup2/) (31회)
+
+같은 재현 컨테이너에서 2026-11-10 17:57~18:06 에 실행했습니다. 이 실행부터 `sweep.sh` 가 **실행 환경 기록** `env-*.txt`(날짜 · 명령 · 바이너리 sha256 · 커널 · cgroup CPU/메모리 한도 · 이미지 ID · git 커밋 · 계정 · seed 없음)를, `run-scenario.sh` 가 `ps.csv` 를 남깁니다.
+
+| 폴더 | 내용 | 인용한 리포트 |
+| --- | --- | --- |
+| [`followup2/deadlock-before/`](followup2/deadlock-before/) | `MULTI_THREAD_ENABLE=true` 30초 → `diagnose.txt` 에 수치 기준 줄 + **이름 · pthread · TID 대응표**, `ps.csv` | Deadlock 2-1, 2-5 |
+| [`followup2/sweep-deadlock/`](followup2/sweep-deadlock/summary.md) | true 10회 · false 10회 + `env-*.txt` 4개. true 2건은 RSS 감소(커널 회수)로 진단 도구가 놓침 | Deadlock 4장 |
+| [`followup2/sweep-deadlock-fixed/`](followup2/sweep-deadlock-fixed/summary.md) | RSS 기준을 "증가 ≤ 0" 으로 고친 뒤 true 10회 재실행 → 10/10 | Deadlock 4장 |
+| [`followup2/logs/`](followup2/logs/) | 각 컨테이너 표준 출력 | — |
+
+리포트의 발췌 아래·옆에 붙은 `Lm–n` 은 이 폴더 원본 파일에서 발췌한 첫 줄 ~ 마지막 줄 번호입니다(중간 `…` 은 생략, 줄 끝 `←` 는 설명).
+
 ## 폴더 안의 파일
 
 | 파일 | 내용 | 만드는 곳 |
@@ -54,6 +67,7 @@
 | `app.log` | 앱 표준출력/에러 전체 (Boot Sequence, Resource Check, 워커 로그, CRITICAL) | 앱 |
 | `monitor.log` | 2초 간격 프로세스 관제. 종료되면 마지막 줄 `STATE:GONE` | `tools/monitor.sh` |
 | `ps.txt` | 시작 3초 후 `ps -ef`, `pstree -p` (부모 부트로더 / 자식 앱 PID) | run-scenario.sh |
+| `ps.csv` | 같은 시점 `epoch,ts,pid,ppid,stat,etimes,nlwp,rss_kb,comm,role` (role = launcher / app). followup2 부터 | run-scenario.sh |
 | `top.txt` | `top -b -d 5 -p <앱 PID>` (5초 간격 %CPU·RES·NI). 22:51 이후 실행에만 있음 | run-scenario.sh |
 | `trace.txt` | `--trace` 실행만. `strace -f -tt -e trace=kill,tgkill,tkill,exit_group` | run-scenario.sh |
 | `diagnose.txt` | `--max` 까지 살아 있던 실행만. 무응답 진단 결과 | `tools/diagnose-hang.sh` |

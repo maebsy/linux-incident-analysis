@@ -11,6 +11,7 @@
 #    monitor.log  첫 줄 '# monitor.sh experiment=… start=… interval=…' + tools/monitor.sh 프로세스 관제 기록
 #    monitor.csv  monitor.log 와 같은 샘플을 CSV 로 (추세 분석·그래프용)
 #    ps.txt       시작 직후 프로세스 트리 (ps -ef, pstree)
+#    ps.csv       같은 시점의 PID 스냅샷 (epoch 포함 — monitor.csv 와 시각으로 이어 붙여 분석)
 #    top.txt      top -b -d 5 -p <앱 PID> 배치 출력 (5초 간격 %CPU·RES)
 #    diagnose.txt 관찰 시간 끝까지 살아 있으면 tools/diagnose-hang.sh 결과
 #    trace.txt    (--trace) strace -f 로 기록한 kill/tgkill/exit_group 시스템 콜
@@ -77,6 +78,15 @@ app=$!
 mon=$!
 sleep 3
 { echo "\$ ps -ef | grep agent-leak"; ps -ef | grep '[a]gent-leak'; echo; echo "\$ pstree -p $app"; pstree -p "$app" 2>/dev/null; } > "$OUT/ps.txt"
+# 같은 순간을 CSV 로: epoch 가 있어 monitor.csv · app.log 시각과 바로 맞춰 볼 수 있다
+{
+    echo "epoch,ts,pid,ppid,stat,etimes,nlwp,rss_kb,comm,role"
+    snap_epoch="$(date +%s)"; snap_ts="$(date '+%Y-%m-%d %H:%M:%S')"
+    ps -eo pid=,ppid=,stat=,etimes=,nlwp=,rss=,comm=,args= | awk -v e="$snap_epoch" -v t="$snap_ts" -v launcher="$app" '
+        /[a]gent-leak-app/ && !/strace|monitor\.sh|run-scenario|grep/ {
+            role = ($1 == launcher) ? "launcher" : (($2 == launcher) ? "app" : "other")
+            printf "%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n", e, t, $1, $2, $3, $4, $5, $6, $7, role }'
+} > "$OUT/ps.csv"
 # top 배치 모드로 5초마다 대상 프로세스의 %CPU·RES 를 함께 남긴다 (monitor.sh 값과 교차 확인용)
 target="$("$ROOT/tools/monitor.sh" 2>/dev/null | grep -o 'PID:[0-9]*' | cut -d: -f2)"
 topper=""

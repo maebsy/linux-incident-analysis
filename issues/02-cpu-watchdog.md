@@ -12,7 +12,7 @@ labels: bug, incident, cpu
 | 환경 | Ubuntu 24.04, 2 vCPU / 8GB, 실행 계정 `agent-admin` |
 | 재현 조건 | `CPU_MAX_OCCUPY=90` `MEMORY_LIMIT=512` `MULTI_THREAD_ENABLE=false` |
 | 재현율 | 3/3 (37s · 25s · 31s), 경계 실험 `CPU_MAX_OCCUPY=60` 도 24s 에 종료 · 동료 평가 후 자동 반복에서 51~90 **15/15 종료**, 50 **0/3 종료** ([4장](#자동-반복-실행--안정-케이스와-경계-케이스)) |
-| 치명도 | **Sev3 (권장)**, 대체 인스턴스 없이 서비스가 멈추면 Sev2 — SIGTERM 이라 정리 기회가 있고 OS 자원은 거의 쓰지 않음(다른 프로세스 지연 변화 없음, 4장). 기준: [runbook 1절](../docs/runbook.md#1-장애-유형별-치명도와-대응-sla) |
+| 치명도 | **Sev3 (권장)**, 대체 인스턴스 없이 서비스가 멈추면 Sev2 — SIGTERM 이라 정리 기회가 있고 OS 자원은 거의 쓰지 않음(다른 프로세스 지연 변화 없음, 4장). 기준: [runbook 1절](../docs/runbook.md#1-장애-유형별-치명도와-대응-sla) · 다른 장애와 겹치면: [우선순위 규칙](README.md#동시-장애가-겹칠-때) |
 | 영향 | 서비스 프로세스가 실행 25~37초 만에 종료 (종료 코드 143) |
 
 ## 1. Description (현상 설명)
@@ -26,7 +26,7 @@ labels: bug, incident, cpu
 
 ### 2-1. 프로그램 실행 로그 — 부하 상승 → 임계치 초과 → 종료
 
-[`evidence/cpu-before/20261012-223757/app.log`](../evidence/cpu-before/20261012-223757/app.log)
+[`evidence/cpu-before/20261012-223757/app.log`](../evidence/cpu-before/20261012-223757/app.log) L17–43
 
 ```text
 2026-10-12 22:37:57,241 [INFO] [SafetyGuard] Process priority lowered (nice=10).
@@ -58,7 +58,7 @@ labels: bug, incident, cpu
 
 ### 2-3. monitor.sh 관제 + top — 이 프로세스, 이 시점
 
-`tools/monitor.sh --interval 2` · [`evidence/cpu-before/20261012-223757/monitor.log`](../evidence/cpu-before/20261012-223757/monitor.log)
+`tools/monitor.sh --interval 2` · [`evidence/cpu-before/20261012-223757/monitor.log`](../evidence/cpu-before/20261012-223757/monitor.log) L1–18
 
 ```text
 [2026-10-12 22:38:00] PROCESS:agent-leak-app PID:12051 STATE:S CPU:0.0% MEM:0.2% RSS:17.6MB THREADS:1 SYS_CPU:2.0% SYS_MEM:6.6% LOG_LINES:31
@@ -69,7 +69,7 @@ labels: bug, incident, cpu
 [2026-10-12 22:38:34] PROCESS:agent-leak-app PID:12051 STATE:GONE
 ```
 
-`top -b -d 5 -p <PID>` · [`evidence/cpu-before/20261012-225108/top.txt`](../evidence/cpu-before/20261012-225108/top.txt)
+`top -b -d 5 -p <PID>` · [`evidence/cpu-before/20261012-225108/top.txt`](../evidence/cpu-before/20261012-225108/top.txt) L8–53
 
 ```text
   PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND
@@ -95,6 +95,19 @@ labels: bug, incident, cpu
 - 그래서 "특정 프로세스의 CPU 급상승 구간" 은 **앱 지표에서 식별**했고, OS 지표로는 "시스템 전체 과부하가 아니다(SYS_CPU 1~2%)" 와 "다른 프로세스가 원인이 아니다" 를 확인했습니다.
 - 운영 관점의 교훈: 앱이 보고하는 지표와 OS 실측이 다를 수 있으므로 **둘 다 수집해야** 합니다. 보고서도 두 값을 나란히 둡니다.
 
+**두 지표의 정량적 관계** — 관제 샘플마다 그 시각의 가장 최근 앱 `Current Load` 를 짝지어(앱 3.1초 · 관제 2초 간격) 실행 5회를 비교했습니다. 위 그래프가 같은 데이터를 시간축에 나란히 그린 것입니다.
+
+| 실행 | 앱 지표 최대 | OS 실측 최대 · 평균 | 짝지은 샘플 | 상관계수 r |
+| --- | ---: | --- | ---: | ---: |
+| [`cpu-before/20261012-223757`](../evidence/cpu-before/20261012-223757/) | 54.96% | 2.5% · 0.88% | 17 | 0.46 |
+| [`cpu-before/20261012-223838`](../evidence/cpu-before/20261012-223838/) | 50.96% | 2.5% · 0.82% | 11 | 0.41 |
+| [`cpu-before/20261012-225108`](../evidence/cpu-before/20261012-225108/) | 52.22% | 2.0% · 0.82% | 14 | 0.33 |
+| [`cpu-60/20261012-223907`](../evidence/cpu-60/20261012-223907/) | 51.07% | 2.0% · 0.68% | 11 | 0.34 |
+| [`cpu-after/20261012-223936`](../evidence/cpu-after/20261012-223936/) | 50.00% | 3.5% · 1.28% | 93 | 0.40 |
+| **5회 합침** | | | **146** | **0.37** |
+
+합친 146쌍의 최소제곱 직선은 **OS 실측 ≈ 0.45 + 0.026 × 앱 지표**(%)입니다. 앱이 50% 를 보고할 때 OS 실측은 약 1.7% 로, 크기가 약 30배 다릅니다. 앱 지표가 25% 미만인 샘플(77개)의 OS 평균은 0.79%, 45% 이상(18개)은 1.64% 였습니다. 방향은 약하게 같이 움직이지만(r 0.33~0.46), **앱 지표 50% 는 실제 CPU 50% 가 아닙니다**. 4장의 "다른 프로세스 지연 변화 없음" 측정과도 일치합니다.
+
 ### 2-4. 종료 코드
 
 ```text
@@ -106,7 +119,7 @@ last_app_log  : 2026-10-12 22:38:33,587 [CRITICAL] [CpuWorker] CPU Threshold Vio
 
 ### 2-5. 누가 죽였나 — strace
 
-`run-scenario.sh --trace` · [`evidence/cpu-before/20261012-223838/trace.txt`](../evidence/cpu-before/20261012-223838/trace.txt)
+`run-scenario.sh --trace` · [`evidence/cpu-before/20261012-223838/trace.txt`](../evidence/cpu-before/20261012-223838/trace.txt) L1–5
 
 ```text
 12953 22:39:02.536661 kill(12953, SIGTERM) = 0                                   ← 앱(12953)이 자기 자신에게 SIGTERM
@@ -153,6 +166,15 @@ Watchdog :  부하 > 50% 이면 → CRITICAL 로그 → kill(getpid(), SIGTERM)
 export CPU_MAX_OCCUPY=50
 ```
 
+**변경 위치와 명령** — 값이 들어 있는 곳은 세 군데이고, 어느 경우든 앱은 시작할 때만 환경변수를 읽으므로 **재시작해야** 적용됩니다.
+
+| 어디서 | 위치 | 명령 |
+| --- | --- | --- |
+| 이 저장소의 실험 | [`scenarios/cpu-before.env`](../scenarios/cpu-before.env#L4) 4줄 `CPU_MAX_OCCUPY=90` → [`scenarios/cpu-after.env`](../scenarios/cpu-after.env#L3) 3줄 `CPU_MAX_OCCUPY=50` | `tools/run-scenario.sh scenarios/cpu-after.env` |
+| 같은 파일을 바꿔서 검증 (백업 · 롤백 포함) | `scenarios/cpu-before.env` | `tools/apply-env.sh scenarios/cpu-before.env CPU_MAX_OCCUPY=50 --verify 60` → 나쁘면 `tools/apply-env.sh --rollback scenarios/cpu-before.env` |
+| 운영 서버 | 실행 계정의 환경 파일(예: `/etc/agent-app/agent-app.env`) 또는 systemd 유닛의 `Environment=CPU_MAX_OCCUPY=50` | `tools/apply-env.sh /etc/agent-app/agent-app.env CPU_MAX_OCCUPY=50` 후 서비스 재시작 |
+
+
 ### Before & After
 
 | | Before (`CPU_MAX_OCCUPY=90`) | After (`CPU_MAX_OCCUPY=50`) |
@@ -164,7 +186,7 @@ export CPU_MAX_OCCUPY=50
 | 종료 코드 | 143 (자체 SIGTERM) | 없음 (관찰자가 정리) |
 | OS 실측 CPU | 0~2.5% | 0~3.5% |
 
-After 실행 로그 ([`evidence/cpu-after/20261012-223936/app.log`](../evidence/cpu-after/20261012-223936/app.log)):
+After 실행 로그 ([`evidence/cpu-after/20261012-223936/app.log`](../evidence/cpu-after/20261012-223936/app.log) L53–166):
 
 ```text
 2026-10-12 22:39:39,754 [INFO] [CpuWorker] Started. Maximum CPU Limit: 50%
@@ -187,21 +209,31 @@ After 실행 로그 ([`evidence/cpu-after/20261012-223936/app.log`](../evidence/
 tools/sweep.sh scenarios/cpu-before.env CPU_MAX_OCCUPY 50 51 55 60 70 90 --repeat 3 --max 120
 ```
 
-| `CPU_MAX_OCCUPY` | 구분 | 실행 | 종료 (exit 143) | 120초 생존 | 생존 시간 최소 / 중앙 / 최대 | 종료 직전 부하 (위반 값) |
-| --- | --- | ---: | ---: | ---: | --- | --- |
-| **50** | 안정 | 3 | 0 | **3** | 120s 관찰 내내 | 50.00% 에서 쿨다운 반복 |
-| **51** | 경계 (+1) | 3 | **3** | 0 | 24 / 34 / 41s | 51.00% · 51.00% · 51.00% |
-| 55 | 경계 | 3 | 3 | 0 | 27 / 31 / 38s | 53.11% · 55.00% · 53.24% |
-| 60 | 경계 | 3 | 3 | 0 | 27 / 28 / 31s | 52.71% · 50.79% · 50.71% |
-| 70 | 과설정 | 3 | 3 | 0 | 21 / 31 / 44s | 55.36% · 54.08% · 54.06% |
-| 90 | 과설정 (Before) | 3 | 3 | 0 | 24 / 34 / 38s | 52.54% · 55.05% · 53.40% |
+| `CPU_MAX_OCCUPY` | 구분 | 실행 | 종료 (exit 143) | 120초 생존 | 생존 시간 최소 / 중앙 / 최대 | 평균 ± 표준편차 | 종료 직전 부하 (위반 값) |
+| --- | --- | ---: | ---: | ---: | --- | --- | --- |
+| **50** | 안정 | 3 | 0 | **3** | 120s 관찰 내내 | — (전부 생존) | 50.00% 에서 쿨다운 반복 |
+| **51** | 경계 (+1) | 3 | **3** | 0 | 24 / 34 / 41s | 33.0 ± 8.5s | 51.00% · 51.00% · 51.00% |
+| 55 | 경계 | 3 | 3 | 0 | 27 / 31 / 38s | 32.0 ± 5.6s | 53.11% · 55.00% · 53.24% |
+| 60 | 경계 | 3 | 3 | 0 | 27 / 28 / 31s | 28.7 ± 2.1s | 52.71% · 50.79% · 50.71% |
+| 70 | 과설정 | 3 | 3 | 0 | 21 / 31 / 44s | 32.0 ± 11.5s | 55.36% · 54.08% · 54.06% |
+| 90 | 과설정 (Before) | 3 | 3 | 0 | 24 / 34 / 38s | 32.0 ± 7.2s | 52.54% · 55.05% · 53.40% |
+| **51~90 합침** | | 15 | **15** | 0 | 21 / **31** / 44s | **31.5 ± 6.7s** | 모두 50% 초과 |
+| (원래 VM, 90) | Before 3회 | 3 | 3 | 0 | 25 / 31 / 37s | 31.0 ± 6.0s | 54.96% · 50.96% · 52.22% |
+
+표준편차는 표본 표준편차(n−1)입니다. 값마다 3회뿐이라 평균 차이(28.7~33.0s)는 표준편차 안에 들어가고, **설정값에 따라 생존 시간이 달라진다고 볼 근거는 없습니다**. 51~90 을 합친 15회의 중앙값 31s 는 원래 VM 3회의 중앙값 31s 와 같습니다. 생존 시간은 설정값이 아니라 앱 부하가 50% 를 처음 넘는 단계(무작위 상승폭)가 정합니다. 요약표는 `tools/sweep.sh --summary` 가 평균 ± 표준편차까지 계산합니다.
 
 - **임계치는 설정값과 무관하게 50% 초과**입니다. 51 이면 부하가 51.00% 에 닿는 순간 `Peak reached (51.00%). Starting cooldown...` 을 찍고도 0.1초 뒤 `CPU Threshold Violated! (51%)` 로 종료됩니다. 쿨다운이 시작돼도 이미 50 을 넘었기 때문입니다([`evidence/followup/sweep-cpu/cpu-before_CPU_MAX_OCCUPY=51/20261110-104955/app.log`](../evidence/followup/sweep-cpu/cpu-before_CPU_MAX_OCCUPY=51/20261110-104955/app.log)).
 - 50 은 3회 모두 50.00% 에서 쿨다운하고 생존 → "50 이하" 가 안전 조건이며, 원래 실험(180초 생존)과 같습니다.
 
 ### 종료 직전 PID · 부하 값
 
-앱 로그의 종료 줄(`CPU Threshold Violated!`)에는 PID 가 없습니다(MemoryGuard 의 `Self-terminating process <PID>` 와 다름). 앱은 바꿀 수 없으므로 `run-scenario.sh` 가 **관제가 잡은 앱 PID 와 종료 직전 N개(기본 5) 부하 값**을 `result.txt` 에 함께 남기도록 했습니다(`LAST_N` 으로 조정).
+앱 로그의 종료 줄(`CPU Threshold Violated!`)에는 PID 가 없습니다(MemoryGuard 의 `Self-terminating process <PID>` 와 다름). 그래서 종료 로그와 PID 를 잇는 데 strace(2-5)나 ps 스냅샷을 손으로 맞춰야 했습니다.
+
+- **앱 쪽 권장(코드 수정, 제안 단계):** 종료 직전 한 줄에 PID · 신호 · 직전 N개 부하를 함께 남깁니다.
+  ```text
+  2026-10-12 22:38:33,587 [CRITICAL] [CpuWorker] CPU Threshold Violated! pid=12051 load=54.96% threshold=50% last=[42.90, 46.79, 54.96] action=SIGTERM
+  ```
+- **지금 할 수 있는 것(구현):** 앱은 바꿀 수 없으므로 `run-scenario.sh` 가 **관제가 잡은 앱 PID 와 종료 직전 N개(기본 5) 부하 값**을 `result.txt` 에 함께 남깁니다(`LAST_N` 으로 조정). 시작 직후의 PID 는 `ps.csv`(epoch 포함)에도 남아, 로그 시각 · 관제 CSV 와 자동으로 이어 붙일 수 있습니다.
 
 ```text
 experiment    : cpu-before_CPU_MAX_OCCUPY=51-20261110-104955

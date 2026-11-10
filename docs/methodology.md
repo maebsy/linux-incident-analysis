@@ -37,15 +37,22 @@ B4-1 의 `monitor.sh` 는 **서버 전체**를 1분마다 기록했습니다. �
 [2026-10-12 22:31:09] PROCESS:agent-leak-app PID:3848 STATE:S CPU:0.5% MEM:0.6% RSS:50.0MB THREADS:1 SYS_CPU:1.2% SYS_MEM:7.0% LOG_LINES:31
 ```
 
-| 필드 | 출처 | 왜 이 값인가 |
-| --- | --- | --- |
-| `PID` | `/proc/*/cmdline` + 부모 관계 | PyInstaller 바이너리는 부트로더(부모)·앱(자식) 2개로 뜬다. 부모는 RSS 2MB 로 고정이라 부모를 보면 누수가 안 보인다 → **부모도 앱인 자식**을 고른다 |
-| `STATE` | `/proc/<pid>/stat` 3번째 필드 | R/S/D/Z. Deadlock 은 S(sleep) 로 고정, 크래시는 사라짐(GONE) |
-| `CPU` | `/proc/<pid>/stat` utime+stime 의 **구간 차이** | 아래 3장 |
-| `RSS` / `MEM` | `/proc/<pid>/status` VmRSS / MemTotal | 가상 메모리(VSZ)가 아니라 실제 점유 물리 메모리. 누수는 RSS 의 **기울기**로 본다 |
-| `THREADS` | `/proc/<pid>/status` Threads | 동시성 모드에서 1 → 3 으로 바뀌는 것이 보인다 |
-| `SYS_CPU` / `SYS_MEM` | `/proc/stat`, `/proc/meminfo` | "시스템 전체" 와 "이 프로세스" 를 나란히 둬야 원인이 한 프로세스인지 구분된다 |
-| `LOG_LINES` | 앱 로그 `wc -l` | 무응답 판별: 프로세스는 살아 있는데 줄 수가 멈추면 진행이 없다 |
+| 필드(CSV 열 이름) | 의미 | 출처 | 단위 |
+| --- | --- | --- | --- |
+| 시각 (`ts`) | 샘플 출력 시각입니다. | `date` | `YYYY-MM-DD HH:MM:SS` |
+| `epoch` (CSV 전용) | 샘플의 Unix 시각입니다. | `date +%s` | 초 |
+| `PROCESS` (CSV 없음) | 관제 대상 표시 이름입니다. | monitor.sh 대상 패턴·표시 이름 | 문자열 |
+| `PID` (`pid`) | 관제하는 앱 자식 프로세스입니다. | `/proc/*/cmdline`과 부모 관계, 또는 `--pid` 지정 | 프로세스 ID |
+| `STATE` (`state`) | R/S/D/Z 등 상태이며 사라지면 GONE입니다. | `/proc/<pid>/stat` 3번째 필드, `/proc` 존재 확인 | 상태 코드 |
+| `CPU` (`cpu_pct`) | utime+stime 구간 차이를 주기와 CLK_TCK로 나눕니다. 1코어 = 100%입니다. | `/proc/<pid>/stat` 14·15번째 필드 | % |
+| `MEM` (`mem_pct`) | RSS / MemTotal × 100입니다. | `/proc/<pid>/status` VmRSS, `/proc/meminfo` MemTotal | % |
+| `RSS` (`rss_mb`) | 실제 점유 물리 메모리입니다. VmRSS / 1024입니다. | `/proc/<pid>/status` VmRSS | 표시 MB (MiB 상당) |
+| `THREADS` (`threads`) | 대상 프로세스의 스레드 수입니다. | `/proc/<pid>/status` Threads | 개 |
+| `SYS_CPU` (`sys_cpu_pct`) | 전체 코어의 구간 busy 비율입니다. idle에는 iowait를 포함합니다. | `/proc/stat` 첫 cpu 행의 구간 차이 | % |
+| `SYS_MEM` (`sys_mem_pct`) | (MemTotal − MemAvailable) / MemTotal × 100입니다. | `/proc/meminfo` | % |
+| `LOG_LINES` (`log_lines`) | 앱 로그 줄 수입니다. 미지정·읽기 불가 시 `-`, CSV는 빈 값입니다. | `--app-log` 파일의 `wc -l` | 줄 |
+
+PyInstaller 부모 부트로더는 RSS가 작고 고정되어 앱 누수를 놓칠 수 있으므로 앱 자식을 관제합니다. CPU는 구간 변화, 누수는 RSS 기울기, 무진행은 로그 줄 수·CPU·락 대기를 함께 확인합니다. RSS의 표기 MB는 KiB를 1024로 나눈 값입니다.
 
 ### 2-1. 실험 ID 머리줄과 CSV (추세 분석용)
 
@@ -88,13 +95,24 @@ awk -F, 'NR>1 && $7!="" {print $2, $7}' monitor.csv           # epoch + RSS (CSV
 | 도구 | 옵션 | 보여주는 값 | 이번 분석에서의 쓰임 |
 | --- | --- | --- | --- |
 | `ps -o pcpu` | `%CPU` | **시작 이후 누적 평균** (총 CPU 시간 ÷ 경과 시간) | 오래 실행된 프로세스는 순간 급상승이 평균에 묻힌다 → 급상승 판별에 부적합 |
-| `top -b -n 1 -p PID` | `-b` 배치(파일 저장 가능), `-n 1` 1회, `-p` 대상 지정 | 직전 갱신 주기(기본 3초) 사용률 | 캡처용. `-H` 를 붙이면 스레드 단위 |
+| `top -b -n 1 -p PID` | `-b` 배치(파일 저장 가능), `-n 1` 1회, `-p` 대상 지정 | 후속 표본은 갱신 구간 사용률, 첫 표본은 동일하게 해석하지 않음 | 캡처용. `-H` 를 붙이면 스레드 단위 |
 | `ps -L -o pid,tid,stat,pcpu,wchan` | `-L` 스레드마다 한 줄, `wchan` 커널 대기 지점 | 스레드별 상태 | Deadlock 진단 |
 | **`/proc/<pid>/stat` 차이** | utime(14)+stime(15) 를 Δt 간격으로 2회 | **그 구간의 실제 사용률** (1코어 = 100%) | monitor.sh 의 `CPU` 값. 스크립트에서 정확하고 가볍다 |
 
 > 이번 실험에서 앱 로그의 `[CpuWorker] Current Load` 는 55% 까지 올랐지만, OS 가 측정한 프로세스 CPU 는 0~2% 에 머물렀습니다.
 > 즉 이 앱의 "Current Load" 는 **앱 내부 지표**이고, Watchdog 은 OS 사용률이 아니라 이 내부 지표를 기준으로 동작합니다.
 > 실제 운영에서는 앱 지표와 OS 지표가 다를 수 있으므로 **둘 다 수집**해야 한다는 근거가 됐습니다. 자세한 내용은 [CPU 리포트](../issues/02-cpu-watchdog.md).
+
+### 선택한 방법과 대체 도구
+
+| 방법 | 측정 방식 | 장점 | 단점 | 이번에 쓰지 않은/쓴 이유 |
+| --- | --- | --- | --- | --- |
+| `/proc` 구간 차이 (채택) | utime+stime을 두 번 읽어 `100 × Δticks / (CLK_TCK × Δt)`로 계산합니다. | PID·주기를 고정하고 같은 샘플을 로그·CSV에 남길 수 있습니다. | 직접 파싱과 tick 양자화 오차 관리가 필요하며 PID 교체를 구분해야 합니다. | 표준 셸·awk로 구현하며 장애 직전 구간과 RSS를 함께 기록하려고 채택했습니다. |
+| `ps %cpu` | 시작 이후 누적 CPU 시간 / 경과 시간입니다. | 설치 부담이 작고 상태·PID를 함께 보기 쉽습니다. | 오래 실행하면 짧은 급상승이 누적 평균에 묻힙니다. | 프로세스·스레드 상태 확인에 사용했고 순간 CPU 판단에는 쓰지 않았습니다. |
+| `top -b` | 반복 갱신 시 CPU 시간 차이를 표시합니다. 첫 표본은 후속 구간과 구분합니다. | 배치 출력 저장과 `-H` 스레드 확인이 가능합니다. | 첫 표본만으로 특정 구간 부하를 단정하기 어렵고 출력 파싱이 필요합니다. | RES·스레드 상태 교차 확인에 사용했고 주 관제는 `/proc`로 통일했습니다. |
+| `pidstat` (`sysstat`) | 지정 간격의 프로세스·스레드 CPU 카운터 차이를 보고합니다. | CPU·문맥 전환 등 상세 지표를 함께 수집하기 좋습니다. | sysstat 추가 설치가 필요합니다. | 기본 환경의 표준 명령어와 `/proc`로 필요한 지표를 확보하여 채택하지 않았습니다. |
+| `psutil.Process().cpu_percent(interval)` | 내부적으로 Linux의 같은 `/proc` CPU 값을 읽고 interval 구간 차이를 계산합니다. | Python에서 구조화된 값으로 다루기 쉽습니다. | Python 패키지 설치가 필요합니다. | 미션이 **리눅스 표준 명령어** 사용을 요구하므로 관제에 채택하지 않았습니다. |
+| cgroup `cpu.stat` | cgroup 누적 CPU 시간(예: v2 `usage_usec`)의 구간 차이 / 경과 시간입니다. | 서비스·컨테이너 전체 CPU와 throttling을 확인하기 좋습니다. | 개별 PID와 범위가 다르고 cgroup 버전·경로·quota 해석이 필요합니다. | 이번 분석은 앱 자식 PID를 고정하므로 주 측정으로 채택하지 않았습니다. 운영 서비스 전체 검증에는 보조 지표로 쓸 수 있습니다. |
 
 ## 4. 종료 원인 판별: 앱이 죽였나, 커널이 죽였나
 

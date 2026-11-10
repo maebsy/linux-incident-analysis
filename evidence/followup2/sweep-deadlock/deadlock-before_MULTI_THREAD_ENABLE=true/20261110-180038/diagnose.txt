@@ -1,0 +1,100 @@
+# diagnose-hang.sh  PID=3234  window=10s  2026-11-10 18:01:19
+
+===== 1. 프로세스 존재 (ps -ef) =====
+$ ps -ef | grep 'agent-leak-app'
+agent-a+    3208    3195  0 18:00 ?        00:00:00 /home/agent-admin/agent-app/agent-leak-app-x86
+agent-a+    3234    3208  0 18:00 ?        00:00:00 /home/agent-admin/agent-app/agent-leak-app-x86
+$ pstree -p 3208 2>/dev/null || true
+agent-leak-app-(3208)---agent-leak-app-(3234)-+-{agent-leak-app-}(3417)
+                                              `-{agent-leak-app-}(3418)
+
+===== 2. 스레드 목록 (ps -L: 스레드별 상태·CPU·커널 대기 지점) =====
+$ ps -L -o pid,tid,stat,pcpu,rss,wchan:20,comm -p 3234
+    PID     TID STAT %CPU   RSS WCHAN                COMMAND
+   3234    3234 SNl   0.2 17988 futex_do_wait        agent-leak-app-
+   3234    3417 SNl   0.0 17988 futex_do_wait        agent-leak-app-
+   3234    3418 SNl   0.0 17988 futex_do_wait        agent-leak-app-
+
+===== 3. top -H (스레드 단위, 1회 배치 출력) =====
+$ top -H -b -n 1 -p 3234 | sed -n '1,4p;7,20p'
+top - 18:01:19 up 5 days,  3:12,  0 user,  load average: 1.66, 1.64, 1.57
+Threads:   3 total,   0 running,   3 sleeping,   0 stopped,   0 zombie
+%Cpu(s):  4.9 us,  4.3 sy,  0.0 ni, 90.7 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st 
+MiB Mem :  14886.1 total,    447.2 free,   8496.2 used,   6651.1 buff/cache     
+    PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND
+   3234 agent-a+  30  10  170172  17988   9612 S   0.0   0.1   0:00.09 agent-l+
+   3417 agent-a+  30  10  170172  17988   9612 S   0.0   0.1   0:00.00 agent-l+
+   3418 agent-a+  30  10  170172  17988   9612 S   0.0   0.1   0:00.00 agent-l+
+
+===== 4. 10초 간격 스냅샷 비교 (/proc/3234/task/*/stat) =====
+TID      STATE1 STATE2       TICKS1       TICKS2    DELTA
+3234     S      S                 9            9        0
+3417     S      S                 0            0        0
+3418     S      S                 0            0        0
+
+CPU ticks 변화 합계 : 0  (CLK_TCK=100 → 0.00% CPU)
+RSS                 : 17988kB → 17988kB (변화 0kB)
+앱 로그 줄 수       : 43 → 43   마지막 수정: 2026-11-10 18:00:48 → 2026-11-10 18:00:48
+마지막 로그 이후     : 41초 동안 새 기록 없음
+
+===== 5. 앱 로그 마지막 기록 =====
+2026-11-10 18:00:46,219 [INFO] [AgentWorker] Waiting for worker threads to complete transactions...
+2026-11-10 18:00:46,219 [INFO] [AgentWorker][Worker-Thread-2] LOCK ACQUIRED: [Socket_Pool_B]. (Holding...)
+2026-11-10 18:00:46,219 [INFO] [AgentWorker][Worker-Thread-1] Processing critical data in Memory A...
+2026-11-10 18:00:46,220 [INFO] [AgentWorker][Worker-Thread-2] Establishing network connections in Pool B...
+2026-11-10 18:00:48,230 [INFO] [AgentWorker][Worker-Thread-2] Need resource [Shared_Memory_A] to write logs.
+2026-11-10 18:00:48,230 [INFO] [AgentWorker][Worker-Thread-2] WAITING for [Shared_Memory_A]... (Status: BLOCKED)
+2026-11-10 18:00:48,230 [INFO] [AgentWorker][Worker-Thread-1] Need resource [Socket_Pool_B] to finish job.
+2026-11-10 18:00:48,231 [INFO] [AgentWorker][Worker-Thread-1] WAITING for [Socket_Pool_B]... (Status: BLOCKED)
+
+===== 6. 락 보유/대기 관계 (로그에서 추출) =====
+Worker-Thread-1 holds  Shared_Memory_A
+Worker-Thread-2 holds  Socket_Pool_B
+Worker-Thread-2 waits  Shared_Memory_A
+Worker-Thread-1 waits  Socket_Pool_B
+
+===== 7. wait-for 그래프 (스레드 → 기다리는 자원을 가진 스레드) 와 순환 탐지 =====
+Worker-Thread-1 --(Socket_Pool_B)--> Worker-Thread-2
+Worker-Thread-2 --(Shared_Memory_A)--> Worker-Thread-1
+순환 대기: Worker-Thread-1 → Worker-Thread-2 → Worker-Thread-1
+
+===== 8. 스레드별 스택 덤프 (코드 레벨에서 어디서 멈췄나) =====
+$ py-spy dump --pid 3234
+Permission Denied: Try running again with elevated permissions by going 'sudo env "PATH=$PATH" !!'
+$ sudo -n py-spy dump --pid 3234
+Process 3234: /home/agent-admin/agent-app/agent-leak-app-x86
+Python v3.10.12 (/home/agent-admin/agent-app/agent-leak-app-x86)
+
+Thread 0x73595BC68080 (active): "MainThread"
+    _wait_for_tstate_lock (threading.py:1116)
+    join (threading.py:1096)
+    trigger_deadlock (os_pbl.py:725)
+    run_scenario (os_pbl.py:762)
+    <module> (os_pbl.py:845)
+Thread 0x73595AB336C0 (active): "Worker-Thread-1"
+    thread_1_logic (os_pbl.py:693)
+    run (threading.py:953)
+    _bootstrap_inner (threading.py:1016)
+    _bootstrap (threading.py:973)
+Thread 0x73595A3326C0 (active): "Worker-Thread-2"
+    thread_2_logic (os_pbl.py:712)
+    run (threading.py:953)
+    _bootstrap_inner (threading.py:1016)
+    _bootstrap (threading.py:973)
+
+스레드 대응표 (이름 · pthread · TID · wchan)
+NAME               PTHREAD          TID      WCHAN
+MainThread         0x73595bc68080   3234     futex_do_wait
+Worker-Thread-2    0x73595a3326c0   3418     futex_do_wait
+Worker-Thread-1    0x73595ab336c0   3417     futex_do_wait
+
+커널 대기 지점 (/proc/3234/task/<tid>: comm · wchan · syscall · stack)
+- tid 3234 agent-leak-app-  wchan=futex_do_wait syscall=?
+- tid 3417 agent-leak-app-  wchan=futex_do_wait syscall=?
+- tid 3418 agent-leak-app-  wchan=futex_do_wait syscall=?
+
+===== 판정 =====
+기준: 10초 구간 CPU 증가 ≤ 0 tick · RSS 변화 ≤ 0 kB · 로그 증가 ≤ 0 줄 · WAITING ≥ 2 건
+관측: CPU 사용 0 메모리 고정 로그 정지 스레드 3/3 개 sleep
+결론: DEADLOCK 의심 — 프로세스는 살아 있으나 모든 스레드가 대기 상태로 진행이 없고, 로그상 서로의 자원을 기다리는 순환 대기(2 건)가 있다.
+      순환 대기: Worker-Thread-1 → Worker-Thread-2 → Worker-Thread-1

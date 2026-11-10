@@ -1,0 +1,3 @@
+epoch,ts,pid,ppid,stat,etimes,nlwp,rss_kb,comm,role
+1794301717,2026-11-10 18:08:37,4266,4253,S,3,1,2140,agent-leak-app-,launcher
+1794301717,2026-11-10 18:08:37,4292,4266,SN,2,1,17864,agent-leak-app-,app

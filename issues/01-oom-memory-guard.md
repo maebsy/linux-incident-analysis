@@ -12,7 +12,7 @@ labels: bug, incident, memory
 | 환경 | Ubuntu 24.04, 2 vCPU / 8GB / swap 없음, 실행 계정 `agent-admin` |
 | 재현 조건 | `MEMORY_LIMIT=256` `CPU_MAX_OCCUPY=50` `MULTI_THREAD_ENABLE=false` |
 | 재현율 | 3/3 (33s · 33s · 34s) · 동료 평가 후 재현 컨테이너에서 1/1 (34s) |
-| 치명도 | **Sev2 (권장)** — 프로세스가 사라져 탐지는 쉽지만 SIGKILL 이라 정리 작업이 없음. 기준: [runbook 1절](../docs/runbook.md#1-장애-유형별-치명도와-대응-sla) |
+| 치명도 | **Sev2 (권장)** — 프로세스가 사라져 탐지는 쉽지만 SIGKILL 이라 정리 작업이 없음. 기준: [runbook 1절](../docs/runbook.md#1-장애-유형별-치명도와-대응-sla) · 다른 장애와 겹치면: [우선순위 규칙](README.md#동시-장애가-겹칠-때) |
 | 영향 | 서비스 프로세스가 예고 없이 사라짐 (SIGKILL → 정리 작업 없이 즉시 종료) |
 
 ## 1. Description (현상 설명)
@@ -26,7 +26,7 @@ labels: bug, incident, memory
 
 ### 2-1. monitor.sh 관제 — RSS 가 선형으로 증가
 
-`tools/monitor.sh --interval 2` (프로세스 단위, `/proc/<pid>/status` VmRSS) · [`evidence/oom-before/20261012-223103/monitor.log`](../evidence/oom-before/20261012-223103/monitor.log)
+`tools/monitor.sh --interval 2` (프로세스 단위, `/proc/<pid>/status` VmRSS) · [`evidence/oom-before/20261012-223103/monitor.log`](../evidence/oom-before/20261012-223103/monitor.log) L1–16
 
 ```text
 [2026-10-12 22:31:06] PROCESS:agent-leak-app PID:3848 STATE:S CPU:0.5% MEM:0.5% RSS:42.6MB  THREADS:1 SYS_MEM:6.6%
@@ -54,9 +54,24 @@ labels: bug, incident, memory
 awk -F, 'NR>1 && $7!="" {print $2, $7}' monitor.csv     # epoch, rss_mb → 그대로 그래프·회귀에 사용
 ```
 
+1초 CSV 의 대표 구간 (약 5초 간격으로 뽑은 행, [원본 30행](../evidence/followup/oom-before/20261110-105000/monitor.csv)):
+
+| 경과(초) | 시각 | RSS (MB) | 직전 행 대비 | 구간 CPU | LOG_LINES |
+| ---: | --- | ---: | ---: | ---: | ---: |
+| 0 | 10:50:02 | 17.5 | — | 0.0% | 19 |
+| 5 | 10:50:07 | 67.5 | +50.0 (10.0 MB/s) | 0.0% | 32 |
+| 11 | 10:50:13 | 117.3 | +49.8 (8.3 MB/s) | 2.0% | 34 |
+| 16 | 10:50:18 | 167.2 | +49.9 (10.0 MB/s) | 3.0% | 36 |
+| 21 | 10:50:23 | 192.2 | +25.0 (5.0 MB/s) | 0.0% | 37 |
+| 27 | 10:50:29 | 242.2 | +50.0 (8.3 MB/s) | 0.0% | 39 |
+| 31 | 10:50:33 | 267.2 | +25.0 (6.3 MB/s) | 0.0% | 40 |
+| **0 → 31** | | **17.5 → 267.2** | **+249.7 (8.05 MB/s)** | 최대 3.0% | 19 → 40 |
+
+구간마다 5~10 MB/s 로 흔들리는 것은 앱이 3.03초마다 25MB 씩 계단으로 늘리고 표본을 약 5초 간격으로 뽑았기 때문입니다(한 구간에 계단이 1~2개). 전체 기울기는 8.05 MB/s 로 일정하고, 같은 시간 CPU 는 최대 3% 로 **메모리만 늘어나는** 누수 패턴입니다.
+
 ### 2-2. top 배치 출력 — 같은 PID 의 RES 증가 (교차 확인)
 
-`top -b -d 5 -p <PID>` · [`evidence/oom-before/20261012-225151/top.txt`](../evidence/oom-before/20261012-225151/top.txt)
+`top -b -d 5 -p <PID>` · [`evidence/oom-before/20261012-225151/top.txt`](../evidence/oom-before/20261012-225151/top.txt) L8–53
 
 ```text
   PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND
@@ -71,11 +86,11 @@ VIRT 와 RES 가 함께 늘어납니다 → 새로 할당한 메모리를 **실�
 
 ### 2-3. 프로그램 실행 로그 — 종료 직전·직후
 
-[`evidence/oom-before/20261012-223103/app.log`](../evidence/oom-before/20261012-223103/app.log)
+[`evidence/oom-before/20261012-223103/app.log`](../evidence/oom-before/20261012-223103/app.log) L30–42
 
 ```text
 2026-10-12 22:31:05,573 [INFO] [MemoryWorker] Current Heap: 25MB
-2026-10-12 22:31:08,603 [INFO] [MemoryWorker] Current Heap: 50MB         ← 3.03초마다 +25MB
+2026-10-12 22:31:08,600 [INFO] [MemoryWorker] Current Heap: 50MB         ← 3.03초마다 +25MB
    …
 2026-10-12 22:31:32,822 [INFO] [MemoryWorker] Current Heap: 250MB
 2026-10-12 22:31:35,851 [INFO] [MemoryWorker] Current Heap: 275MB
@@ -87,7 +102,7 @@ VIRT 와 RES 가 함께 늘어납니다 → 새로 할당한 메모리를 **실�
 
 ### 2-4. 누가 죽였나 — strace 로 신호 출처 확인
 
-`run-scenario.sh --trace` (앱을 `strace -f -e trace=kill,tgkill,exit_group` 의 자식으로 실행) · [`evidence/oom-before/20261012-223140/trace.txt`](../evidence/oom-before/20261012-223140/trace.txt)
+`run-scenario.sh --trace` (앱을 `strace -f -e trace=kill,tgkill,exit_group` 의 자식으로 실행) · [`evidence/oom-before/20261012-223140/trace.txt`](../evidence/oom-before/20261012-223140/trace.txt) L1–5
 
 ```text
 4676  22:32:13.099574 kill(4676, SIGKILL) = ?                        ← 앱(4676)이 자기 자신에게 SIGKILL
@@ -166,6 +181,15 @@ VIRT 와 RES 가 함께 늘어납니다 → 새로 할당한 메모리를 **실�
 export MEMORY_LIMIT=512
 ```
 
+**변경 위치와 명령** — 값이 들어 있는 곳은 세 군데이고, 어느 경우든 앱은 시작할 때만 환경변수를 읽으므로 **재시작해야** 적용됩니다.
+
+| 어디서 | 위치 | 명령 |
+| --- | --- | --- |
+| 이 저장소의 실험 | [`scenarios/oom-before.env`](../scenarios/oom-before.env#L3) 3줄 `MEMORY_LIMIT=256` → [`scenarios/oom-after.env`](../scenarios/oom-after.env#L2) 2줄 `MEMORY_LIMIT=512` | `tools/run-scenario.sh scenarios/oom-after.env` |
+| 같은 파일을 바꿔서 검증 (백업 · 롤백 포함) | `scenarios/oom-before.env` | `tools/apply-env.sh scenarios/oom-before.env MEMORY_LIMIT=512 --verify 60` → 나쁘면 `tools/apply-env.sh --rollback scenarios/oom-before.env` |
+| 운영 서버 | 실행 계정의 환경 파일(예: `/etc/agent-app/agent-app.env`) 또는 systemd 유닛의 `Environment=MEMORY_LIMIT=512` | `tools/apply-env.sh /etc/agent-app/agent-app.env MEMORY_LIMIT=512` 후 서비스 재시작 |
+
+
 ### Before & After
 
 | | Before (`MEMORY_LIMIT=256`) | After (`MEMORY_LIMIT=512`) |
@@ -200,7 +224,7 @@ export MEMORY_LIMIT=512
 | `followup/oom-before/20261110-105000` | 256, 1초 주기 | 10:50:00 | 10:50:34 | 34s | 137 SIGKILL |
 | `followup/oom-after/20261110-105000` | 512, 1초 주기 | 10:50:00 | 11:00:01 | 601s+ | 관찰 종료 |
 
-After 실행 로그 ([`evidence/oom-after/20261012-223240/app.log`](../evidence/oom-after/20261012-223240/app.log)):
+After 실행 로그 ([`evidence/oom-after/20261012-223240/app.log`](../evidence/oom-after/20261012-223240/app.log) L96–244):
 
 ```text
 2026-10-12 22:33:44,571 [WARNING] [MemoryWorker] Memory Usage Reached Limit (525MB). Starting cleanup...
@@ -224,14 +248,43 @@ After 실행 로그 ([`evidence/oom-after/20261012-223240/app.log`](../evidence/
 2. 처리 끝난 데이터의 참조를 끊는다(`del`, `pop`, 컨텍스트 매니저). 큰 버퍼는 재사용
 3. `tracemalloc` 스냅샷 비교로 증가하는 할당 위치를 찾아 테스트로 고정 (메모리 회귀 테스트)
 4. SIGKILL 대신 **SIGTERM → 유예 → SIGKILL** 순서로 종료해 진행 중 작업을 정리할 기회를 준다
-5. 운영: 컨테이너/systemd `MemoryMax` 로 OS 수준 상한을 함께 걸고, monitor.sh 에 **RSS 기울기 경고**(예: 10분 연속 증가 + 증가율 > X MB/분)를 추가해 한도 도달 **전에** 알림 — 구체적 임계값(Warning ≥ 4MB/s, Critical ≥ 8MB/s, RSS ≥ 한도 80%/90%)과 알림 경로는 [runbook 3절](../docs/runbook.md#3-알림-임계값과-알림-경로)
+5. 운영: 컨테이너/systemd `MemoryMax` 로 OS 수준 상한을 함께 걸고, monitor.sh 에 **RSS 기울기 경고**(예: 10분 연속 증가 + 증가율 > X MB/분)를 추가해 한도 도달 **전에** 알림 — 구체적 임계값(Warning ≥ 4MB/s, Critical ≥ 8MB/s, RSS ≥ 한도 80%/90%)과 알림 경로, **서버 메모리 크기별 권장값(2 · 8 · 32GB)** 은 [runbook 3절](../docs/runbook.md#3-알림-임계값과-알림-경로)
 
 **적용 대상과 영향 범위** — 바이너리 소스가 없으므로 대상은 로그에 찍힌 컴포넌트 이름으로 지정하고, 같은 수정을 테스트용 가짜 앱에 적용해 효과를 테스트로 고정했습니다.
 
 | 적용 대상 (로그 컴포넌트) | 패치 | 참고 구현 | 영향 범위 | 검증 테스트 |
 | --- | --- | --- | --- | --- |
 | `[MemoryWorker]` 의 누적 버퍼 | 리스트 → `deque(maxlen=N)` (오래된 항목부터 버림) | [`tests/fake-agent-leak-app.py`](../tests/fake-agent-leak-app.py) `leak-bounded` 모드 | 보관 개수를 넘는 오래된 데이터는 사라진다 → 재조회가 필요한 데이터면 캐시 미스 비용 확인 | [`tests/run-fix-tests.sh`](../tests/run-fix-tests.sh) "leak-bounded": 8초 동안 RSS 가 50~100MB 에서 멈추고 후반 변동 ≤ 15MB, 보관 5개/50MB 유지 |
-| `[MemoryGuard]` 종료 단계 | `kill(SIGKILL)` → SIGTERM + 유예(예: 5초) 후 SIGKILL | (제안, 참고 구현 없음) | 유예 동안 메모리가 더 늘 수 있음 → 유예 시간 × 누수 속도(≈8MB/s ≈ 40MB)만큼 한도에 여유 필요 | strace 로 `kill(pid, SIGTERM)` 뒤 `SIGKILL` 순서를 확인 (2-4 와 같은 방법) |
+| `[MemoryGuard]` 종료 단계 | `kill(SIGKILL)` → 80% 경고 · 100% SIGTERM · 정리 · 유예 후 SIGKILL (아래 "권장 종료 절차") | 같은 파일 `guard-graceful` · `guard-graceful-stuck` 모드 (대조: `guard-kill`) | 유예 동안 메모리가 더 늘 수 있음 → 유예 시간 × 누수 속도(≈8MB/s · 5초 ≈ 40MB)만큼 한도에 여유 필요 | 같은 테스트: 즉시 SIGKILL 은 exit 137 · 정리 로그 없음 / 권장 절차는 80% 경고 → SIGTERM → `cleanup done` → exit 143 / 정리가 안 끝나면 유예 1초 뒤 SIGKILL(exit 137) |
+
+**상태 구분** — 위 표의 두 줄은 모두 **가짜 앱에 적용한 참고 구현 + 자동 테스트**입니다(실제 바이너리는 소스가 없어 고칠 수 없음). 근본 해결 제안 1~5 중 2(참조 끊기) · 3(tracemalloc) · 5(systemd `MemoryMax`, 기울기 경보)는 **제안 단계**이고 구현하지 않았습니다. 테스트 결과(`bash tests/run-fix-tests.sh`, CI 와 같은 Docker 이미지):
+
+```text
+[leak-bounded: 8초 RSS 관찰]
+  PASS 마지막 RSS 50~100MB, 후반 4개 표본 변동 ≤15MB
+[MemoryGuard 종료 절차: 즉시 SIGKILL vs 경고 → SIGTERM → 정리 → 유예 후 SIGKILL]
+  PASS guard-kill: exit 137 (SIGKILL)
+  PASS guard-kill: 정리 로그 없음
+  PASS guard-graceful: exit 143 (SIGTERM)
+  PASS guard-graceful: 80% 경고가 한도 도달보다 먼저
+  PASS guard-graceful: 정리 완료 로그 후 종료
+  PASS guard-graceful: 유예 SIGKILL 이 쓰이지 않음
+  PASS guard-graceful-stuck: 정리가 안 끝나면 유예 후 SIGKILL (exit 137)
+  PASS guard-graceful-stuck: grace expired 로그
+```
+
+### 권장 종료 절차 (MemoryGuard)
+
+지금 앱은 한도에 닿는 같은 밀리초에 SIGKILL 하나로 끝냅니다(3장 동작 순서). 권장 방향과 파라미터(모두 권장값)는 다음과 같습니다.
+
+| 단계 | 조건 | 조치 | 파라미터 근거 |
+| --- | --- | --- | --- |
+| 1. 경고 | Heap ≥ 한도의 80% | WARNING 로그 + 알림 (RSS 기울기 경보와 함께) | 8MB/s 누수면 80% → 100% 까지 약 6초(256MB 기준 51MB ÷ 8MB/s). 사람이 대응하기엔 짧아 **알림 + 자동 정리**가 목적 |
+| 2. 정리 시도 | Heap ≥ 한도 | 캐시 비우기 (512MB 일 때 앱이 이미 하는 `Memory Cache Flushed`) | 실제 앱은 257MB 이상에서만 이 단계를 함(3장) |
+| 3. 정상 종료 요청 | 정리 후에도 한도 초과 | 자기 자신에게 **SIGTERM** → 핸들러가 진행 중 작업 저장 · 연결 종료 | SIGTERM 은 잡을 수 있어 정리 기회가 있음 |
+| 4. 강제 종료 | SIGTERM 후 **유예 5초** 안에 안 끝남 | SIGKILL | 유예 동안 늘 메모리(8MB/s × 5초 ≈ 40MB)를 한도에 미리 남겨 둠. 유예가 무한하면 정리 단계가 멈춘 채 메모리만 잡아먹으므로 상한 필수 |
+
+참고 구현(`guard-graceful`)은 테스트를 빨리 돌리려고 한도 60MB · 유예 1초로 줄였고, 순서와 종료 코드(143 정상 / 137 유예 초과)가 위 표와 같음을 테스트가 확인합니다.
 
 ## 재현 방법
 

@@ -48,7 +48,7 @@
 1. **세 장애 모두 "앱의 보호 정책" 이 종료(또는 멈춤)의 직접 주체였다.** `strace -f` 로 OOM 은 `kill(4676, SIGKILL)`, CPU 는 `kill(12953, SIGTERM)` — 호출자와 대상이 같은 PID 임을 확인했습니다. 커널 OOM Killer 나 외부 kill 이 아닙니다. ([방법론 4장](docs/methodology.md#4-종료-원인-판별-앱이-죽였나-커널이-죽였나))
 2. **CPU Watchdog 의 기준은 `CPU_MAX_OCCUPY` 가 아니라 고정 50%.** 60 으로 낮춰도 51.07% 에서 죽고, 50 이면 정확히 50.00% 에 닿고 쿨다운합니다(초과가 아니므로 생존). 경계 실험 `cpu-60` 하나로 드러난 사실입니다.
 3. **앱이 보고하는 CPU 부하와 OS 실측은 다르다.** 앱 로그 `Current Load` 는 54.96% 까지 올랐지만 `/proc` 실측은 최대 2.5%, 25초 동안 총 CPU 시간 0.28초. 리포트에 두 값을 나란히 적고, "급상승 구간" 은 앱 지표로 식별했다고 명시했습니다.
-4. **Deadlock 은 "CPU 0%" 하나로 판정하지 않았다.** 10초 구간 CPU tick Δ0 + RSS 고정 + 로그 정지 + 전 스레드 `futex_do_wait` + 로그상 순환 대기, 다섯 가지가 모두 성립할 때만 DEADLOCK 으로 판정합니다(`diagnose-hang.sh`). 정상 실행은 스레드가 똑같이 `S` 로 보여도 구간 변화가 있어 "진행 중" 으로 나옵니다. 동료 평가 후에는 **스레드별 스택 덤프**로 두 워커가 각자의 함수(`os_pbl.py` 693 · 712줄)에서 두 번째 락을 기다리며 멈춘 것까지 확인했고, 재현율은 10/10(동시성 off 는 0/10)입니다([Deadlock 2-5](issues/03-deadlock.md#2-5-스레드별-스택-덤프--코드-레벨에서-a--b--a-확인)).
+4. **Deadlock 은 "CPU 0%" 하나로 판정하지 않았다.** 10초 구간 CPU tick Δ0 + RSS 증가 없음 + 로그 정지 + 전 스레드 `futex_do_wait` + 로그상 순환 대기, 다섯 가지가 모두 성립할 때만 DEADLOCK 으로 판정합니다(`diagnose-hang.sh`). 정상 실행은 스레드가 똑같이 `S` 로 보여도 구간 변화가 있어 "진행 중" 으로 나옵니다. 동료 평가 후에는 **스레드별 스택 덤프**로 두 워커가 각자의 함수(`os_pbl.py` 693 · 712줄)에서 두 번째 락을 기다리며 멈춘 것까지 확인했고, 재현율은 10/10(동시성 off 는 0/10)입니다([Deadlock 2-5](issues/03-deadlock.md#2-5-스레드별-스택-덤프--코드-레벨에서-a--b--a-확인)).
 
 ## 빠른 시작
 
@@ -91,9 +91,10 @@ repro/run.sh tools/sweep.sh scenarios/cpu-before.env CPU_MAX_OCCUPY 50 51 60 90 
 | 도구 | 역할 | 핵심 |
 | --- | --- | --- |
 | [`tools/monitor.sh`](tools/monitor.sh) | 프로세스 단위 관제 (B4-1 monitor.sh 확장) | PyInstaller 부모/자식 중 **실제 앱(자식)** 을 골라 `/proc` 에서 구간 CPU · VmRSS · 스레드 수 · 로그 줄 수를 2초마다 고정 포맷으로 기록. 종료 시 `STATE:GONE`. `--header` 실험 ID 머리줄, `--csv` 추세 분석용 CSV |
-| [`tools/run-scenario.sh`](tools/run-scenario.sh) | 시나리오 1회 실행 | 앱 실행 + 관제 + `ps`/`pstree` + `top -b` + (선택) `strace -f` + (살아 있으면) 무응답 진단 → `result.txt` 에 실험 ID · 생존 시간 · 종료 코드 · 신호 이름 · 앱 PID · 종료 직전 부하/힙 N개 · 최대 RSS 요약. 모든 산출물 첫 줄에 같은 실험 ID |
-| [`tools/diagnose-hang.sh`](tools/diagnose-hang.sh) | "살아 있지만 멈춘" 프로세스 진단 | ps -ef → ps -L wchan → top -H → `/proc/task/*` 10초 비교 → 로그 마지막 줄 → 락 보유/대기 추출 → **wait-for 그래프 순환 탐지** → **스레드별 스택 덤프**(py-spy → gdb → `/proc/<tid>/stack`) → **DEADLOCK / HANG / 진행 중** 판정 |
-| [`tools/sweep.sh`](tools/sweep.sh) | 변수 하나를 여러 값으로 반복 실행 | 값마다 env 를 만들어 N회 실행 → 값별 종료/생존 · 생존 시간 · 종료 코드 · DEADLOCK 판정 수 · 종료 직전 부하 요약표 (안정/경계 케이스, 재현율) |
+| [`tools/run-scenario.sh`](tools/run-scenario.sh) | 시나리오 1회 실행 | 앱 실행 + 관제 + `ps`/`pstree` + `top -b` + (선택) `strace -f` + (살아 있으면) 무응답 진단 → `result.txt` 에 실험 ID · 생존 시간 · 종료 코드 · 신호 이름 · 앱 PID · 종료 직전 부하/힙 N개 · 최대 RSS 요약. 모든 산출물 첫 줄에 같은 실험 ID. `ps.csv`(epoch · pid · ppid · stat · nlwp · rss · role)도 남김 |
+| [`tools/diagnose-hang.sh`](tools/diagnose-hang.sh) | "살아 있지만 멈춘" 프로세스 진단 | ps -ef → ps -L wchan → top -H → `/proc/task/*` 10초 비교 → 로그 마지막 줄 → 락 보유/대기 추출 → **wait-for 그래프 순환 탐지** → **스레드별 스택 덤프**(py-spy → gdb → `/proc/<tid>/stack`) → 이름 · pthread · TID 대응표 → 수치 기준(`기준:` 줄, 환경변수로 조정)으로 **DEADLOCK / HANG / 진행 중** 판정 |
+| [`tools/sweep.sh`](tools/sweep.sh) | 변수 하나를 여러 값으로 반복 실행 | 값마다 env 를 만들어 N회 실행 → 값별 종료/생존 · 생존 시간 · 종료 코드 · DEADLOCK 판정 수 · 평균 ± 표준편차 · 종료 직전 부하 요약표 (안정/경계 케이스, 재현율). 실행 환경 기록 `env-*.txt`(sha256 · 커널 · cgroup 한도 · 이미지 · 커밋) |
+| [`tools/apply-env.sh`](tools/apply-env.sh) | 환경변수 변경 적용·롤백 | 백업(`<파일>.bak-<시각>`) 후 값 변경 + diff, `--dry-run`, `--verify N`(run-scenario 검증), `--rollback`(최근 백업 복원) — 절차는 [runbook 5절](docs/runbook.md#5-환경변수-변경-적용과-롤백) |
 | [`tools/latency-probe.sh`](tools/latency-probe.sh) | 다른 프로세스가 느려지는지 | 0.5초마다 로컬 HTTP 왕복 시간과 `sleep 0.1` 스케줄링 지연 → p50 / p95 / max |
 | [`repro/`](repro/) | 실제 바이너리 재현 컨테이너 | `bin/agent-leak-app-x86` + Boot 조건 + py-spy · gdb, 2 vCPU · 8GB · swap 없음 |
 | [`tools/compare.sh`](tools/compare.sh) | Before/After 표 | 여러 `result.txt` → 마크다운 비교표 ([`evidence/summary.md`](evidence/summary.md)) |
@@ -108,6 +109,21 @@ repro/run.sh tools/sweep.sh scenarios/cpu-before.env CPU_MAX_OCCUPY 50 51 60 90 
 # monitor.sh experiment=oom-before-20261110-105000 start=2026-11-10 10:50:00 interval=1s clk_tck=100 pid=44 pattern=agent-leak-app
 [2026-10-12 22:31:16] PROCESS:agent-leak-app PID:3848 STATE:S CPU:0.5% MEM:1.5% RSS:117.6MB THREADS:1 SYS_CPU:1.2% SYS_MEM:7.0% LOG_LINES:36
 ```
+
+| 필드(CSV 열 이름) | 의미 | 출처 | 단위 |
+| --- | --- | --- | --- |
+| 시각 (`ts`) | 샘플 출력 시각입니다. | `date` | `YYYY-MM-DD HH:MM:SS` |
+| `epoch` (CSV 전용) | 샘플의 Unix 시각입니다. | `date +%s` | 초 |
+| `PROCESS` (CSV 없음) | 관제 대상 표시 이름입니다. | monitor.sh 대상 패턴·표시 이름 | 문자열 |
+| `PID` (`pid`) | 관제하는 앱 자식 프로세스입니다. | `/proc/*/cmdline`과 부모 관계, 또는 `--pid` 지정 | 프로세스 ID |
+| `STATE` (`state`) | R/S/D/Z 등 상태이며 사라지면 GONE입니다. | `/proc/<pid>/stat` 3번째 필드, `/proc` 존재 확인 | 상태 코드 |
+| `CPU` (`cpu_pct`) | utime+stime 구간 차이를 주기와 CLK_TCK로 나눕니다. 1코어 = 100%입니다. | `/proc/<pid>/stat` 14·15번째 필드 | % |
+| `MEM` (`mem_pct`) | RSS / MemTotal × 100입니다. | `/proc/<pid>/status` VmRSS, `/proc/meminfo` MemTotal | % |
+| `RSS` (`rss_mb`) | 실제 점유 물리 메모리입니다. VmRSS / 1024입니다. | `/proc/<pid>/status` VmRSS | 표시 MB (MiB 상당) |
+| `THREADS` (`threads`) | 대상 프로세스의 스레드 수입니다. | `/proc/<pid>/status` Threads | 개 |
+| `SYS_CPU` (`sys_cpu_pct`) | 전체 코어의 구간 busy 비율입니다. idle에는 iowait를 포함합니다. | `/proc/stat` 첫 cpu 행의 구간 차이 | % |
+| `SYS_MEM` (`sys_mem_pct`) | (MemTotal − MemAvailable) / MemTotal × 100입니다. | `/proc/meminfo` | % |
+| `LOG_LINES` (`log_lines`) | 앱 로그 줄 수입니다. 미지정·읽기 불가 시 `-`, CSV는 빈 값입니다. | `--app-log` 파일의 `wc -l` | 줄 |
 
 실행 샘플 원본: [2초 주기 · 33초 (OOM Before)](evidence/oom-before/20261012-223103/monitor.log) · [1초 주기 + CSV](evidence/followup/oom-before/) · [1초 주기 600초 장기 시계열 + CSV](evidence/followup/oom-after/) · [Deadlock 300초 + 스택 덤프](evidence/followup/deadlock-before/). 샘플 주기별 측정 오차(1초 ±1%p, 2초 ±0.5%p)와 권장값은 [방법론 2-2](docs/methodology.md#2-2-샘플-주기와-측정-오차).
 
@@ -196,6 +212,7 @@ linux-incident-analysis/
 │   ├── diagnose-hang.sh          # 무응답 진단 (Deadlock 판정)
 │   ├── compare.sh                # Before/After 표
 │   ├── sweep.sh                  # 변수 하나 반복 실행 + 요약 (안정/경계, 재현율)
+│   ├── apply-env.sh              # 환경변수 변경 적용 · 검증 · 롤백
 │   ├── latency-probe.sh          # 다른 프로세스 지연 측정
 │   ├── analyze-schedule.sh       # [보너스] 스케줄링 역추론
 │   ├── run-all.sh                # 전체 재현
@@ -203,7 +220,7 @@ linux-incident-analysis/
 │   ├── publish-issues.sh         # issues/*.md → GitHub Issues
 │   └── env/base.env              # 공통 환경 (AGENT_HOME, 포트, 키 경로 …)
 ├── scenarios/                    # 실험 조건 (*.env, 변수 하나씩만 다름)
-├── evidence/                     # 실행 원본 (17회) + summary.md, followup/ (동료 평가 후속 46회)
+├── evidence/                     # 실행 원본 (17회) + summary.md, followup/ (동료 평가 후속 46회), followup2/ (2차 후속 31회)
 ├── docs/
 │   ├── methodology.md            # 분석 방법론
 │   ├── checklist.md              # 체크리스트 답변
@@ -232,6 +249,7 @@ bash tests/run-tests.sh
   PASS 바쁜 프로세스 CPU ≥ 70% (측정 100.0%)
 [diagnose-hang.sh: 실제 교착 상태 판정]
   PASS 결론 DEADLOCK
+  PASS 판정 기준을 수치로 출력
   PASS wait-for 그래프 순환 탐지
   PASS 스레드별 스택 덤프 단계 (도구가 없으면 /proc wchan 까지)
   PASS 바쁜 프로세스는 '진행 중'
@@ -239,7 +257,13 @@ bash tests/run-tests.sh
   PASS B→C→A 고정 + 비선점 → Priority
   PASS 등록 순서대로 연속 실행 → FCFS
   PASS 중간 교대 → Round-Robin
-결과: 39 passed, 0 failed
+[apply-env.sh: 적용 · 백업 · 롤백]
+  PASS --dry-run: diff 만 출력, 파일 그대로
+  PASS 적용: 값 변경 + 백업 1개
+  PASS 롤백: 원래 값으로 복원, 백업 정리
+[sweep.sh --summary: 생존 시간 통계]
+  PASS 최소/중앙/최대 + 평균 ± 표준편차 (25 · 30 · 35s)
+결과: 45 passed, 0 failed
 
 [개선안 참고 구현 테스트]                      # tests/run-fix-tests.sh — 리포트의 코드 레벨 제안을 가짜 앱에 적용
 [leak-bounded: 8초 RSS 관찰]
@@ -249,7 +273,12 @@ bash tests/run-tests.sh
 [deadlock-timeout: 진행 및 진단]
   PASS TIMEOUT 후 retry 기록
   PASS 진단: 진행 중
-결과: PASS 17, FAIL 0
+[MemoryGuard 종료 절차: 즉시 SIGKILL vs 경고 → SIGTERM → 정리 → 유예 후 SIGKILL]
+  PASS guard-kill: exit 137 (SIGKILL)
+  PASS guard-graceful: exit 143 (SIGTERM)
+  PASS guard-graceful: 정리 완료 로그 후 종료
+  PASS guard-graceful-stuck: 정리가 안 끝나면 유예 후 SIGKILL (exit 137)
+결과: PASS 25, FAIL 0
 ```
 
 GitHub Actions 가 push 마다 ShellCheck(경고 0) + 테스트를 실행합니다: [`.github/workflows/tests.yml`](.github/workflows/tests.yml)
@@ -269,6 +298,7 @@ docker run --rm --cap-add SYS_PTRACE linux-incident-analysis     # ShellCheck + 
 
 | 문서 | 내용 |
 | --- | --- |
+| [issues/README.md](issues/README.md) | 리포트 색인, 템플릿 충족 여부, 동시 장애 판단 요약 |
 | [docs/methodology.md](docs/methodology.md) | 실험 설계, monitor.sh 필드, CPU 도구 비교, 종료 주체 판별(앱 vs 커널 vs 외부), 무응답 진단 순서, 환경과 한계 |
 | [docs/checklist.md](docs/checklist.md) | 미션 체크리스트 항목 1~4 답변 (도구·옵션, 판단 흐름, 원리, 확장 질문) |
 | [docs/presentation.html](docs/presentation.html) | 동료 평가 발표 슬라이드 68장 (브라우저로 열기, ← → 넘기기 · N 발표자 노트 · 인쇄하면 PDF) |

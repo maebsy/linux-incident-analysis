@@ -1,0 +1,19 @@
+experiment    : deadlock-before_MULTI_THREAD_ENABLE=false-20261110-175857
+scenario      : deadlock-before_MULTI_THREAD_ENABLE=false
+env           : MEMORY_LIMIT=512 CPU_MAX_OCCUPY=50 MULTI_THREAD_ENABLE=false
+binary        : agent-leak-app-x86 (launcher PID 1096)
+app_pid       : 1122  (관제 대상 = 실제 앱 프로세스)
+interval      : 2s
+start         : 2026-11-10 17:58:57
+end           : 2026-11-10 17:59:37
+survival      : 40s (관찰 종료 시점까지 생존 — 관찰자가 종료)
+exit_code     : 143 (128 + SIGTERM)
+status        : alive
+peak_rss      : 417.2MB
+peak_cpu      : 4.0%  (프로세스 실측, 1코어=100%)
+samples       : 24
+last_loads    : 50.00% 41.08% 38.44% 28.50% 27.27%  (앱 Current Load, 종료 직전 최대 5개)
+last_heap     : 325MB 350MB 375MB 400MB 425MB  (앱 Current Heap, 종료 직전 최대 5개)
+last_app_log  : 2026-11-10 17:59:48,799 [INFO] [MemoryWorker] Current Heap: 425MB
+key_lines     :
+  2026-11-10 17:59:33,414 [INFO] [CpuWorker] Peak reached (50.00%). Starting cooldown...

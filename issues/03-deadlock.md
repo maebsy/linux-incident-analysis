@@ -12,8 +12,8 @@ labels: bug, incident, deadlock
 | 환경 | Ubuntu 24.04, 2 vCPU / 8GB, 실행 계정 `agent-admin` |
 | 재현 조건 | `MULTI_THREAD_ENABLE=true` `MEMORY_LIMIT=512` `CPU_MAX_OCCUPY=50` |
 | 발생 시각 | 2026-10-12 22:43:02 (시작 9초 후) — 이후 관찰 종료(22:44:23)까지 **81초 이상 무진행** |
-| 재현율 | **10/10** (`MULTI_THREAD_ENABLE=true`, 매번 시작 10초 뒤 정지) · `false` 는 **0/10** — [재현율 실험](#재현율-동시성-모드에서-몇-번-중-몇-번-나나) |
-| 치명도 | **Sev1 (권장)** — PID 검사가 통과해 탐지가 늦고 자가 복구가 없음 (300초 관찰). 기준: [runbook 1절](../docs/runbook.md#1-장애-유형별-치명도와-대응-sla) |
+| 재현율 | **10/10** (`MULTI_THREAD_ENABLE=true`, 매번 시작 10초 뒤 정지) · `false` 는 **0/10**. 2차 후속 포함 누적 **30/30 · 0/20**, 실행 환경은 `env-*.txt` 로 기록 — [재현율 실험](#재현율-동시성-모드에서-몇-번-중-몇-번-나나) |
+| 치명도 | **Sev1 (권장)** — PID 검사가 통과해 탐지가 늦고 자가 복구가 없음 (300초 관찰). 기준: [runbook 1절](../docs/runbook.md#1-장애-유형별-치명도와-대응-sla) · 다른 장애와 겹치면: [우선순위 규칙](README.md#동시-장애가-겹칠-때) |
 | 영향 | 프로세스는 살아 있어 헬스체크(PID 존재)는 통과하지만 **아무 일도 하지 않음**. 종료 코드도, 에러 로그도 없음 |
 
 ## 1. Description (현상 설명)
@@ -31,7 +31,7 @@ labels: bug, incident, deadlock
 
 ### 2-1. PID 존재 — `ps -ef`, `pstree`
 
-[`evidence/deadlock-before/20261012-224253/diagnose.txt`](../evidence/deadlock-before/20261012-224253/diagnose.txt) (멈추고 83초 뒤인 22:44:25 에 실행)
+[`evidence/deadlock-before/20261012-224253/diagnose.txt`](../evidence/deadlock-before/20261012-224253/diagnose.txt) L4–9 (멈추고 83초 뒤인 22:44:25 에 실행)
 
 ```text
 $ ps -ef | grep '[a]gent-leak'
@@ -44,6 +44,16 @@ agent-leak-app-(17379)---agent-leak-app-(17428)-+-{agent-leak-app-}(17767)     �
 ```
 
 `TIME 00:00:00` — 1분 30초를 살아 있는 동안 누적 CPU 시간이 1초도 안 됩니다.
+
+스크린샷이나 `ps -ef` 텍스트만으로는 시각을 기계적으로 맞추기 어려워, 2차 평가 후 `run-scenario.sh` 가 같은 정보를 epoch 이 붙은 CSV 로도 남깁니다. [`evidence/followup2/deadlock-before/20261110-175805/ps.csv`](../evidence/followup2/deadlock-before/20261110-175805/ps.csv) L1–3:
+
+```text
+epoch,ts,pid,ppid,stat,etimes,nlwp,rss_kb,comm,role
+1794301088,2026-11-10 17:58:08,20,7,S,3,1,2156,agent-leak-app-,launcher
+1794301088,2026-11-10 17:58:08,44,20,SN,2,1,18088,agent-leak-app-,app
+```
+
+`role` 열이 부트로더(launcher)와 앱(app)을 구분하고, `epoch` 으로 `monitor.csv`·`app.log` 시각과 바로 맞출 수 있습니다(같은 실행의 `monitor.csv` 도 `epoch` 열을 가짐).
 
 ### 2-2. CPU/MEM 변화 정체 — `ps -L`, `top -H`, 10초 간격 비교
 
@@ -80,7 +90,7 @@ RSS                 : 18100kB → 18100kB (변화 0kB)
 
 ### 2-3. monitor.sh 관제 — 시작 9초 후부터 모든 값이 고정
 
-[`evidence/deadlock-before/20261012-224253/monitor.log`](../evidence/deadlock-before/20261012-224253/monitor.log)
+[`evidence/deadlock-before/20261012-224253/monitor.log`](../evidence/deadlock-before/20261012-224253/monitor.log) L3–50
 
 ```text
 [2026-10-12 22:43:00] PROCESS:agent-leak-app PID:17428 STATE:S CPU:0.0% MEM:0.2% RSS:17.6MB THREADS:1 SYS_CPU:1.7% LOG_LINES:31
@@ -95,7 +105,7 @@ RSS                 : 18100kB → 18100kB (변화 0kB)
 
 ### 2-4. 마지막 로그 지점 — `WAITING … (Status: BLOCKED)`
 
-[`evidence/deadlock-before/20261012-224253/app.log`](../evidence/deadlock-before/20261012-224253/app.log) — 이 아래로 로그가 한 줄도 없습니다.
+[`evidence/deadlock-before/20261012-224253/app.log`](../evidence/deadlock-before/20261012-224253/app.log) L32–42 — 이 아래로 로그가 한 줄도 없습니다.
 
 ```text
 2026-10-12 22:43:00,583 [INFO] [Worker-Thread-1] Process Started. Attempting to lock [Shared_Memory_A]...
@@ -129,7 +139,7 @@ Worker-Thread-1 waits  Socket_Pool_B
 
 로그는 "무엇을 기다린다" 는 앱의 **주장**입니다. 실제로 각 스레드가 코드 어디에서 멈췄는지는 살아 있는 프로세스의 스택으로 확인했습니다. 동료 평가 후 같은 바이너리를 [재현 컨테이너](../repro/Dockerfile)에서 다시 실행해 `diagnose-hang.sh` 8단계(새로 추가)로 수집했습니다. 디컴파일이 아니라 **실행 중인 프로세스의 스택을 ptrace 로 읽는** 방법이라 strace 와 같은 관찰 범위입니다.
 
-[`evidence/followup/deadlock-before/20261110-104942/diagnose.txt`](../evidence/followup/deadlock-before/20261110-104942/diagnose.txt) (시작 10초 뒤 정지 → 300초 뒤 진단):
+[`evidence/followup/deadlock-before/20261110-104942/diagnose.txt`](../evidence/followup/deadlock-before/20261110-104942/diagnose.txt) L64–80 (시작 10초 뒤 정지 → 300초 뒤 진단):
 
 ```text
 $ sudo -n py-spy dump --pid 44
@@ -153,6 +163,18 @@ Thread 0x7C8B0F0BC6C0 (active): "Worker-Thread-2"
 | Worker-Thread-2 | B 보유 · A 대기 | `thread_2_logic` os_pbl.py:**712** | `PyThread_acquire_lock_timed` | `futex_do_wait` |
 | MainThread | 워커 완료 대기 | `trigger_deadlock` os_pbl.py:725 → `join` | `PyThread_acquire_lock_timed` | `futex_do_wait` |
 
+**스레드 이름 ↔ TID 대응** — 위 표의 "Worker-Thread-1" 이 `ps -L`·`/proc/<pid>/task/` 의 어느 TID 인지 2차 평가 후 자동으로 맞춥니다. `diagnose-hang.sh` 8단계가 py-spy 의 `Thread 0x…` (pthread 주소)와 gdb `info threads` 의 `Thread 0x… (LWP n)` 를 주소로 이어 붙입니다. [`evidence/followup2/deadlock-before/20261110-175805/diagnose.txt`](../evidence/followup2/deadlock-before/20261110-175805/diagnose.txt) L85–89:
+
+```text
+스레드 대응표 (이름 · pthread · TID · wchan)
+NAME               PTHREAD          TID      WCHAN
+MainThread         0x7ab151b40080   44       futex_do_wait
+Worker-Thread-2    0x7ab14bfff6c0   224      futex_do_wait
+Worker-Thread-1    0x7ab150a0b6c0   223      futex_do_wait
+```
+
+같은 파일 L31–33 의 10초 비교에서 TID 223·224 는 tick 0 → 0, 메인(44)은 8 → 8 입니다. 즉 "이름이 Worker-Thread-1 인 스레드 = TID 223 = os_pbl.py:693 에서 futex 대기" 로 로그·스택·커널 세 층이 **스레드 하나 단위로** 이어집니다.
+
 세 층(로그 · 파이썬 · 커널)이 같은 이야기를 합니다: 두 워커는 서로 다른 함수(693 · 712줄)에서 **각자 두 번째 락을 얻으려다** 멈췄고, 메인은 그 워커들을 `join` 하느라 멈췄습니다. 같은 진단의 7단계 wait-for 그래프는 `순환 대기: Worker-Thread-1 → Worker-Thread-2 → Worker-Thread-1` 을 자동으로 출력합니다.
 
 ## 3. Root Cause Analysis (원인 분석)
@@ -172,6 +194,8 @@ Thread 0x7C8B0F0BC6C0 (active): "Worker-Thread-2"
 
   T1 → (B 를 가진) T2 → (A 를 가진) T1      ⇒  사이클 = 교착 상태
 ```
+
+![Wait-for graph — 보유(파랑)와 대기(빨강 점선)가 원을 이룸](../docs/images/wait-for-graph.svg)
 
 4. **OS 증거로 교차 확인한다.** 로그만 보면 "로그만 멈추고 계산은 계속" 일 수도 있다. 그래서 3개 스레드가 모두 `S` + `futex_do_wait` 이고 10초간 CPU tick 0 인 것을 확인했다(2-2). 메인 스레드도 futex 에 있는 것은 `Waiting for worker threads…` 로그대로 **워커 join 을 기다리기 때문**이다 → 워커 둘이 풀리지 않으면 메인도 영원히 풀리지 않는다.
 5. **코드 위치로 확정한다.** 스택 덤프(2-5)에서 두 워커가 각자의 로직 함수(693 · 712줄) 안 락 획득에서, 메인이 `join` 에서 멈춘 것을 확인했다. 1~3단계(로그 → 그래프)는 이제 `diagnose-hang.sh` 7단계가 자동으로 한다.
@@ -201,6 +225,15 @@ Thread 0x7C8B0F0BC6C0 (active): "Worker-Thread-2"
 export MULTI_THREAD_ENABLE=false
 ```
 
+**변경 위치와 명령** — 값이 들어 있는 곳은 세 군데이고, 어느 경우든 앱은 시작할 때만 환경변수를 읽으므로 **재시작해야** 적용됩니다.
+
+| 어디서 | 위치 | 명령 |
+| --- | --- | --- |
+| 이 저장소의 실험 | [`scenarios/deadlock-before.env`](../scenarios/deadlock-before.env#L5) 5줄 `MULTI_THREAD_ENABLE=true` → [`scenarios/deadlock-after.env`](../scenarios/deadlock-after.env#L4) 4줄 `MULTI_THREAD_ENABLE=false` | `tools/run-scenario.sh scenarios/deadlock-after.env` |
+| 같은 파일을 바꿔서 검증 (백업 · 롤백 포함) | `scenarios/deadlock-before.env` | `tools/apply-env.sh scenarios/deadlock-before.env MULTI_THREAD_ENABLE=false --verify 60` → 나쁘면 `tools/apply-env.sh --rollback scenarios/deadlock-before.env` |
+| 운영 서버 | 실행 계정의 환경 파일(예: `/etc/agent-app/agent-app.env`) 또는 systemd 유닛의 `Environment=MULTI_THREAD_ENABLE=false` | `tools/apply-env.sh /etc/agent-app/agent-app.env MULTI_THREAD_ENABLE=false` 후 서비스 재시작 |
+
+
 ### Before & After
 
 | | Before (`MULTI_THREAD_ENABLE=true`) | After (`MULTI_THREAD_ENABLE=false`) |
@@ -213,7 +246,7 @@ export MULTI_THREAD_ENABLE=false
 | `diagnose-hang.sh` 판정 | **DEADLOCK 의심** | **진행 중 — 멈춘 상태가 아니다** |
 | 결과 | 관찰 종료까지 무응답 | 120초 관찰 내내 정상 동작 |
 
-After 진단 결과 ([`evidence/deadlock-after/20261012-224440/diagnose.txt`](../evidence/deadlock-after/20261012-224440/diagnose.txt)):
+After 진단 결과 ([`evidence/deadlock-after/20261012-224440/diagnose.txt`](../evidence/deadlock-after/20261012-224440/diagnose.txt) L51–53):
 
 ```text
 ===== 판정 =====
@@ -231,6 +264,16 @@ After 진단 결과 ([`evidence/deadlock-after/20261012-224440/diagnose.txt`](..
 | `MULTI_THREAD_ENABLE=false` | 10 | 0 | **0%** | 정지 없음, 10회 모두 "진행 중" |
 
 10/10 인 이유는 두 워커가 첫 락을 **같은 밀리초**에 잡고(예: 10:49:50,013 / ,013), 2초 뒤 서로의 락을 요청하는 고정 시나리오이기 때문입니다. 타이밍이 매번 같아 "운이 좋으면 지나가는" 구간이 이 바이너리에서는 관찰되지 않았습니다. 그래도 10회는 표본이 작으므로 "항상" 이라고 단정하지 않고 **10/10** 으로 적습니다.
+
+**2차 평가 후 재측정 (같은 조건 기록 포함)** — 재현 조건을 다시 맞출 수 있도록 `sweep.sh` 가 실행마다 환경 기록 `env-*.txt` 를 남기게 했습니다(날짜 · 명령 · 바이너리 sha256 · 커널 · cgroup CPU/메모리 한도 · 컨테이너 이미지 ID · git 커밋 · 실행 계정). 앱은 난수 seed 를 받지 않으므로(외부 설정은 환경변수 3개뿐) "seed" 칸에는 그 사실을 적습니다. 예: [`evidence/followup2/sweep-deadlock/env-MULTI_THREAD_ENABLE=true-175753-7.txt`](../evidence/followup2/sweep-deadlock/env-MULTI_THREAD_ENABLE=true-175753-7.txt) — `binary_sha256 : 7e0a19cf…1dd1bb3e40`, `nproc : 16 (cgroup cpu.max: 200000 100000)`, `memory … (cgroup memory.max: 8589934592)`, `image : sha256:96e5a0ff…`.
+
+| 측정 | 조건 | 시도 | DEADLOCK 판정 | 비고 |
+| --- | --- | ---: | ---: | --- |
+| [followup2 1회차](../evidence/followup2/sweep-deadlock/summary.md) | `true` | 10 | **8** | 2건 누락 — 아래 |
+| 〃 | `false` | 10 | 0 | 10회 모두 "진행 중" |
+| [followup2 수정 후](../evidence/followup2/sweep-deadlock-fixed/summary.md) | `true` | 10 | **10** | 판정 로직 수정 후 재실행 |
+
+1회차의 누락 2건은 앱이 아니라 **진단 도구의 오판**이었습니다(이번에 문서에 적힌 판정 조건 'RSS 고정' 을 판정식에도 넣은 직후의 도구로, 이전 판정식은 CPU · 로그 · 대기 건수만 봤습니다). 두 실행 모두 CPU tick 0 · 로그 43 → 43 · `WAITING` 2건 · wait-for 순환이 있었지만, 호스트 여유 메모리가 약 200MB 로 줄어든 상태에서 커널이 페이지를 회수해 RSS 가 **줄었고**(17828 → 17388 kB, 17596 → 17312 kB — [`…/20261110-175753/diagnose.txt`](../evidence/followup2/sweep-deadlock/deadlock-before_MULTI_THREAD_ENABLE=true/20261110-175753/diagnose.txt) L36), "RSS 변화 0" 조건에서 탈락했습니다. 멈춘 프로세스의 RSS 가 줄어드는 것은 진행이 아니므로 판정을 **RSS 증가 ≤ 0 kB** 로 바꿨습니다(`tools/diagnose-hang.sh`, 아래 판정 임계값 표). 이 기준이면 두 실행도 DEADLOCK 입니다. 수정 후 재실행 10회는 10/10 이며, 원본 측정(10/10)과 합쳐 동시성 모드 **30회 중 30회 교착**(진단 누락 2건은 수정 전 도구 기준) · 비동시성 **20회 중 0회** 입니다.
 
 ### 타임아웃 · 재시도 설정
 
@@ -268,6 +311,23 @@ After 에서도 스레드 3개가 "sleep" 으로 보이는 것은 정상입니�
 | --- | --- | --- | --- | --- |
 | `[AgentWorker][Worker-Thread-2]` 의 락 획득 순서 (B → A) | 전역 순서 A → B 로 통일 (1번) | [`tests/fake-agent-leak-app.py`](../tests/fake-agent-leak-app.py) `deadlock-ordered` 모드 | Worker-Thread-2 가 B 를 쓰기 전에 A 를 먼저 잡으므로 A 를 쥐는 시간이 늘어 동시성이 줄 수 있다 | [`tests/run-fix-tests.sh`](../tests/run-fix-tests.sh): `diagnose-hang.sh` 결론 "진행 중", 두 워커의 `PROGRESS` 줄이 계속 증가 |
 | 두 워커의 두 번째 락 대기 | `acquire(timeout=1)` 실패 시 첫 락 해제 + 무작위 백오프 재시도 (2번) | 같은 파일 `deadlock-timeout` 모드 | 재시도 중에는 작업이 지연되고, 백오프가 같으면 서로 양보만 반복(livelock)할 수 있어 무작위 지연이 필요 | 같은 테스트: `TIMEOUT … retry` 기록 후에도 진행, DEADLOCK 판정 없음 |
+
+**상태 구분** — 1 · 2번은 **가짜 앱에 적용한 참고 구현 + 자동 테스트**(`run-fix-tests.sh` 의 deadlock-ordered · deadlock-timeout, 진단 결론 "진행 중")입니다. 실제 바이너리는 소스가 없어 고칠 수 없으므로 실제 앱에 대해서는 **제안 단계**이고, 3 · 4번은 테스트 없는 제안입니다. 5번 중 스택 덤프는 `diagnose-hang.sh` 에 구현되어 실제 바이너리에서 확인했습니다(2-5).
+
+### 판정 임계값 (수치)
+
+"멈췄다" 를 사람마다 다르게 판단하지 않도록 기준을 수치로 고정했습니다. 2차 확인 값은 `tools/diagnose-hang.sh` 머리와 변수에 같은 값으로 들어 있고, 출력 첫머리 "기준:" 줄에 그대로 찍힙니다(환경변수로 조정 가능).
+
+| 단계 | 지표 | 기준 | 근거 |
+| --- | --- | --- | --- |
+| 1차 감지 (상시) | monitor.sh `LOG_LINES` | **30초** 이상 같은 값 (2초 주기 15샘플) | 정상 실행(After)은 워커 로그가 약 3초마다 나와 30초 동안 멈출 일이 없음 |
+| 1차 감지 (상시) | monitor.sh `CPU` | 같은 30초 동안 **0.0%** | Before 45개 샘플 전부 0.0% |
+| 2차 확인 | 관찰 구간 `WINDOW` | **10초** | 두 스냅샷 간격. After 는 이 구간에 16 tick 사용 |
+| 2차 확인 | 전 스레드 CPU tick 증가 `CPU_TICKS_MAX` | **≤ 0 tick** (10ms 미만) | Before 6→6 · 0→0 · 0→0 |
+| 2차 확인 | RSS 증가 `RSS_DELTA_MAX_KB` | **≤ 0 kB** (감소는 진행으로 보지 않음) | Before 18100 → 18100 kB. 메모리 압박 중에는 17828 → 17388 kB 처럼 커널 회수로 줄어듦 |
+| 2차 확인 | 로그 줄 증가 `LOG_DELTA_MAX` | **≤ 0 줄** | Before 42 → 42 |
+| 판정 | 순환 대기 `MIN_BLOCKED` | 로그의 `WAITING for` **≥ 2건** + wait-for 사이클 | 두 워커가 서로를 기다림 |
+| 결론 | | 위 네 개 모두 → **DEADLOCK**, 순환 대기만 없으면 **HANG**, 하나라도 움직이면 **진행 중** | 정상 실행 10/10 이 "진행 중" (재현율 실험) |
 
 ### 운영 감지 절차 — wait-for 그래프를 주기적으로
 
