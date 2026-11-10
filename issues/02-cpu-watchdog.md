@@ -7,10 +7,12 @@ labels: bug, incident, cpu
 
 | 항목 | 값 |
 | --- | --- |
+| 작성 템플릿 | [`.github/ISSUE_TEMPLATE/bug_report.md`](../.github/ISSUE_TEMPLATE/bug_report.md) — GitHub 에서 New issue 를 누르면 같은 구조로 뜸 |
 | 대상 | `agent-leak-app-x86` (부모 부트로더 + 자식 앱 프로세스) |
 | 환경 | Ubuntu 24.04, 2 vCPU / 8GB, 실행 계정 `agent-admin` |
 | 재현 조건 | `CPU_MAX_OCCUPY=90` `MEMORY_LIMIT=512` `MULTI_THREAD_ENABLE=false` |
-| 재현율 | 3/3 (37s · 25s · 31s), 경계 실험 `CPU_MAX_OCCUPY=60` 도 24s 에 종료 |
+| 재현율 | 3/3 (37s · 25s · 31s), 경계 실험 `CPU_MAX_OCCUPY=60` 도 24s 에 종료 · 동료 평가 후 자동 반복에서 51~90 **15/15 종료**, 50 **0/3 종료** ([4장](#자동-반복-실행--안정-케이스와-경계-케이스)) |
+| 치명도 | **Sev3 (권장)**, 대체 인스턴스 없이 서비스가 멈추면 Sev2 — SIGTERM 이라 정리 기회가 있고 OS 자원은 거의 쓰지 않음(다른 프로세스 지연 변화 없음, 4장). 기준: [runbook 1절](../docs/runbook.md#1-장애-유형별-치명도와-대응-sla) |
 | 영향 | 서비스 프로세스가 실행 25~37초 만에 종료 (종료 코드 143) |
 
 ## 1. Description (현상 설명)
@@ -177,6 +179,57 @@ After 실행 로그 ([`evidence/cpu-after/20261012-223936/app.log`](../evidence/
 
 추가로, 같은 After 설정(`cpu-after.env`)으로 5번 더 실행한 [스케줄링 분석용 실행](../evidence/schedule-runs/cpu-after/)과 [OOM After](../evidence/oom-after/20261012-223240/result.txt) · [Deadlock After](../evidence/deadlock-after/20261012-224440/result.txt) 실행(모두 `CPU_MAX_OCCUPY=50`)에서도 CPU 로 인한 종료는 한 번도 없었습니다.
 
+### 자동 반복 실행 — 안정 케이스와 경계 케이스
+
+환경 파일을 바꾼 뒤 사람이 한 번 돌려 보는 대신, [`tools/sweep.sh`](../tools/sweep.sh) 가 `CPU_MAX_OCCUPY` 만 바꾼 env 를 만들어 값마다 3회씩 실행하고 요약합니다(동료 평가 후, 재현 컨테이너). 원본: [`evidence/followup/sweep-cpu/`](../evidence/followup/sweep-cpu/summary.md)
+
+```bash
+tools/sweep.sh scenarios/cpu-before.env CPU_MAX_OCCUPY 50 51 55 60 70 90 --repeat 3 --max 120
+```
+
+| `CPU_MAX_OCCUPY` | 구분 | 실행 | 종료 (exit 143) | 120초 생존 | 생존 시간 최소 / 중앙 / 최대 | 종료 직전 부하 (위반 값) |
+| --- | --- | ---: | ---: | ---: | --- | --- |
+| **50** | 안정 | 3 | 0 | **3** | 120s 관찰 내내 | 50.00% 에서 쿨다운 반복 |
+| **51** | 경계 (+1) | 3 | **3** | 0 | 24 / 34 / 41s | 51.00% · 51.00% · 51.00% |
+| 55 | 경계 | 3 | 3 | 0 | 27 / 31 / 38s | 53.11% · 55.00% · 53.24% |
+| 60 | 경계 | 3 | 3 | 0 | 27 / 28 / 31s | 52.71% · 50.79% · 50.71% |
+| 70 | 과설정 | 3 | 3 | 0 | 21 / 31 / 44s | 55.36% · 54.08% · 54.06% |
+| 90 | 과설정 (Before) | 3 | 3 | 0 | 24 / 34 / 38s | 52.54% · 55.05% · 53.40% |
+
+- **임계치는 설정값과 무관하게 50% 초과**입니다. 51 이면 부하가 51.00% 에 닿는 순간 `Peak reached (51.00%). Starting cooldown...` 을 찍고도 0.1초 뒤 `CPU Threshold Violated! (51%)` 로 종료됩니다. 쿨다운이 시작돼도 이미 50 을 넘었기 때문입니다([`evidence/followup/sweep-cpu/cpu-before_CPU_MAX_OCCUPY=51/20261110-104955/app.log`](../evidence/followup/sweep-cpu/cpu-before_CPU_MAX_OCCUPY=51/20261110-104955/app.log)).
+- 50 은 3회 모두 50.00% 에서 쿨다운하고 생존 → "50 이하" 가 안전 조건이며, 원래 실험(180초 생존)과 같습니다.
+
+### 종료 직전 PID · 부하 값
+
+앱 로그의 종료 줄(`CPU Threshold Violated!`)에는 PID 가 없습니다(MemoryGuard 의 `Self-terminating process <PID>` 와 다름). 앱은 바꿀 수 없으므로 `run-scenario.sh` 가 **관제가 잡은 앱 PID 와 종료 직전 N개(기본 5) 부하 값**을 `result.txt` 에 함께 남기도록 했습니다(`LAST_N` 으로 조정).
+
+```text
+experiment    : cpu-before_CPU_MAX_OCCUPY=51-20261110-104955
+app_pid       : 54  (관제 대상 = 실제 앱 프로세스)
+interval      : 2s
+start         : 2026-11-10 10:49:55
+end           : 2026-11-10 10:50:36
+survival      : 41s
+exit_code     : 143 (128 + SIGTERM)
+last_loads    : 37.75% 39.89% 49.32% 50.00% 51.00%  (앱 Current Load, 종료 직전 최대 5개)
+last_app_log  : 2026-11-10 10:50:35,447 [CRITICAL] [CpuWorker] CPU Threshold Violated! (51%).
+```
+
+### 다른 프로세스에 미치는 영향 (latency)
+
+"CPU 과점유" 라는 이름과 달리, 같은 머신의 다른 프로세스가 느려지는지 직접 쟀습니다. [`tools/latency-probe.sh`](../tools/latency-probe.sh) 가 0.5초마다 ① 로컬 웹 서버(`python3 -m http.server`)에 HTTP 요청 왕복 시간, ② `sleep 0.1` 이 실제로 더 걸린 시간(깨어나 CPU 를 다시 받기까지의 스케줄링 지연)을 기록합니다. 재현 컨테이너(2 vCPU), 원본: [`evidence/followup/latency/`](../evidence/followup/latency/)
+
+| 구간 | 샘플 | HTTP 왕복 p50 / p95 / max (ms) | 스케줄링 지연 p50 / p95 / max (ms) |
+| --- | ---: | --- | --- |
+| 앱 없음 (기준) | 76 | 1.20 / 1.43 / 1.59 | 4.21 / 5.07 / 5.29 |
+| CPU Before 실행 중 (전 구간 30초) | 59 | 1.29 / 1.48 / 1.50 | 4.14 / 5.14 / 5.76 |
+| 그중 앱 부하 ≥ 40% 구간 (종료 직전) | 7 | 1.26 / 1.41 / 1.46 | 3.99 / 4.05 / 4.18 |
+| **대조군**: 실제로 CPU 를 쓰는 프로세스 4개 (2 vCPU) | 52 | 1.24 / 1.56 / 1.82 | 4.60 / **57.84** / **65.22** |
+
+- 앱이 "과점유" 를 보고하는 동안에도 다른 프로세스의 지연은 기준과 같습니다(차이는 측정 잡음 수준). OS 실측 CPU 가 0~2.5% 인 것(2-3)과 일치합니다.
+- 대조군처럼 **실제로** CPU 를 점유하면 스케줄링 지연 p95 가 5ms → 58ms 로 10배 이상 늘어 탐침이 영향을 잡아낸다는 것도 확인했습니다. 따라서 "영향 없음" 은 측정 방법의 한계가 아니라 이 앱의 실제 특성입니다.
+- 그래서 이 장애의 피해는 **이 프로세스 자신의 종료**이고, 시스템 전체 자원 고갈로 번지지 않습니다 → 치명도를 OOM 보다 낮게 둔 근거(머리 표).
+
 ### 해석과 한계
 
 - `CPU_MAX_OCCUPY=50` 은 **부하가 임계치에 닿기만 하고 넘지 않게** 만드는 임시 조치입니다. 50.00% 는 임계치와 같은 값이라 여유(headroom)가 0 입니다. 운영이라면 40~45 처럼 **임계치보다 확실히 낮게** 두는 편이 안전합니다.
@@ -188,7 +241,7 @@ After 실행 로그 ([`evidence/cpu-after/20261012-223936/app.log`](../evidence/
 2. **즉사 대신 단계적 대응:** 1회 초과 즉시 종료하지 말고 "N초 연속 초과" 일 때만 개입(순간 스파이크 무시), 1단계는 작업 속도 조절(throttle), 2단계에서 종료
 3. **CPU 사용을 OS 수준에서 제한:** 계산 루프를 작업 큐 + 고정 크기 워커 풀로 바꾸고, systemd `CPUQuota=50%` 또는 cgroup v2 `cpu.max` 로 커널이 상한을 강제하게 함
 4. **지표 일치:** Watchdog 이 앱 내부 값이 아니라 `/proc/self/stat`(또는 `psutil.Process().cpu_percent()`) 실측으로 판정하게 하고, 두 값을 함께 로그로 남김
-5. 종료 시 `CPU Threshold Violated` 뒤에 **신호 이름·PID·직전 N개 부하 값**을 남겨 재현 없이도 원인이 보이게 함
+5. 종료 시 `CPU Threshold Violated` 뒤에 **신호 이름·PID·직전 N개 부하 값**을 남겨 재현 없이도 원인이 보이게 함 — 앱을 고치기 전까지는 `run-scenario.sh` 가 같은 정보를 `result.txt` 에 남김(4장 "종료 직전 PID · 부하 값")
 
 ## 재현 방법
 
@@ -199,4 +252,8 @@ tools/run-scenario.sh scenarios/cpu-before.env            # 약 25~37초, exit 1
 tools/run-scenario.sh scenarios/cpu-before.env --trace    # + strace 신호 기록
 tools/run-scenario.sh scenarios/cpu-60.env                # 경계 실험: 60 도 종료
 tools/run-scenario.sh scenarios/cpu-after.env --max 180   # 3분 생존 확인
+
+# 재현 컨테이너에서 (바이너리 포함) — 안정/경계 자동 반복, 다른 프로세스 지연
+repro/run.sh tools/sweep.sh scenarios/cpu-before.env CPU_MAX_OCCUPY 50 51 55 60 70 90 --repeat 3 --max 120
+repro/run.sh tools/latency-probe.sh --duration 40 --out /work/latency.csv
 ```

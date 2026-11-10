@@ -47,11 +47,40 @@ B4-1 의 `monitor.sh` 는 **서버 전체**를 1분마다 기록했습니다. �
 | `SYS_CPU` / `SYS_MEM` | `/proc/stat`, `/proc/meminfo` | "시스템 전체" 와 "이 프로세스" 를 나란히 둬야 원인이 한 프로세스인지 구분된다 |
 | `LOG_LINES` | 앱 로그 `wc -l` | 무응답 판별: 프로세스는 살아 있는데 줄 수가 멈추면 진행이 없다 |
 
+### 2-1. 실험 ID 머리줄과 CSV (추세 분석용)
+
+`run-scenario.sh` 는 실행마다 실험 ID(`<시나리오>-<YYYYMMDD-HHMMSS>`, 결과 폴더 이름과 같음)를 만들어 **모든 산출물 첫 줄에 같은 ID 와 시작 시각**을 남기고, 같은 샘플을 CSV 로도 저장합니다(2026-11 후속 실험부터).
+
+```text
+app.log      # experiment=oom-before-20261110-103727 start=2026-11-10 10:37:27 scenario=oom-before env: MEMORY_LIMIT=256 …
+monitor.log  # monitor.sh experiment=oom-before-20261110-103727 start=2026-11-10 10:37:27 interval=2s clk_tck=100 pid=44 pattern=agent-leak-app
+monitor.csv  ts,epoch,pid,state,cpu_pct,mem_pct,rss_mb,threads,sys_cpu_pct,sys_mem_pct,log_lines
+result.txt   experiment / start / end / survival / app_pid / interval / last_loads / last_heap …
+```
+
+실행 샘플 원본: [2초 간격 33초 (OOM Before)](../evidence/oom-before/20261012-223103/monitor.log) · [1초 간격 + CSV (OOM Before)](../evidence/followup/oom-before/) · [1초 간격 600초 장기 시계열 + CSV (OOM After)](../evidence/followup/oom-after/)
+
+### 2-2. 샘플 주기와 측정 오차
+
+CPU 는 tick(1/CLK_TCK 초, 이 환경 10ms) 단위로만 셀 수 있어서, 구간 길이가 짧을수록 tick 하나의 무게가 커집니다. 양자화 오차는 **±100 / (간격 × CLK_TCK) %p** 입니다.
+
+| 간격 | 이론 양자화 오차 | 실측: 50% duty 제어 부하, 60초 (평균 · 표준편차 · 범위) | 판단 |
+| --- | --- | --- | --- |
+| 0.5초 | ±2.0%p | 51.05 · 1.48 · 48.0 ~ 54.0 (120샘플) | 짧은 스파이크는 잡지만 값이 흔들림. 비권장 |
+| 1초 | ±1.0%p | 50.50 · 0.70 · 49.0 ~ 52.0 (60샘플) | 30초 안에 끝나는 장애(OOM 33s)의 기울기를 촘촘히 볼 때 |
+| **2초 (기본)** | ±0.5%p | 50.10 · 0.35 · 49.5 ~ 51.0 (30샘플) | 오차와 해상도의 균형. 리포트의 모든 실행 |
+| 5초 | ±0.2%p | 50.05 · 0.14 · 49.8 ~ 50.2 (12샘플) | 장시간 관찰용. 25MB/3초 계단 같은 변화가 뭉개짐 |
+
+- 실측 원본: [`evidence/followup/sampling/`](../evidence/followup/sampling/) (20ms 계산 + 20ms 쉼을 반복하는 이론값 50% 부하를 네 간격으로 동시에 관제, 재현 컨테이너). 장애 앱이 아니라 정답을 아는 부하로 측정 도구만 검증한 것입니다.
+- RSS 는 순간값이라 주기 오차가 없고, 주기는 **해상도**만 정합니다. 앱이 3.03초마다 25MB 를 잡으므로 2초 주기에서는 계단(0 또는 25MB 증가)으로, 1초 주기에서는 3샘플마다 한 번 오르는 모양으로 보입니다.
+- 권장: 기본 2초, 1분 안에 끝나는 장애는 1초, 수 시간 관찰은 5초. 0.5초 미만은 측정 자체(`sleep`·`awk` 실행)가 결과에 섞이므로 쓰지 않습니다.
+
 메모리 증가 패턴은 이렇게 뽑습니다.
 
 ```bash
 grep -o 'RSS:[0-9.]*' monitor.log | cut -d: -f2           # RSS 추이
 awk -F'RSS:' '{split($2,a,"MB"); print $1, a[1]}' monitor.log   # 시각 + RSS
+awk -F, 'NR>1 && $7!="" {print $2, $7}' monitor.csv           # epoch + RSS (CSV, 기울기 계산용)
 ```
 
 ## 3. CPU 사용률을 무엇으로 볼 것인가

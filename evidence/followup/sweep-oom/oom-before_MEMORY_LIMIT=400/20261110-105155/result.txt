@@ -1,0 +1,21 @@
+experiment    : oom-before_MEMORY_LIMIT=400-20261110-105155
+scenario      : oom-before_MEMORY_LIMIT=400
+env           : MEMORY_LIMIT=400 CPU_MAX_OCCUPY=50 MULTI_THREAD_ENABLE=false
+binary        : agent-leak-app-x86 (launcher PID 28)
+app_pid       : 54  (관제 대상 = 실제 앱 프로세스)
+interval      : 2s
+start         : 2026-11-10 10:51:55
+end           : 2026-11-10 10:53:35
+survival      : 100s (관찰 종료 시점까지 생존 — 관찰자가 종료)
+exit_code     : 143 (128 + SIGTERM)
+status        : alive
+peak_rss      : 392.0MB
+peak_cpu      : 7.0%  (프로세스 실측, 1코어=100%)
+samples       : 53
+last_loads    : 33.72% 36.97% 42.88% 50.00% 45.63%  (앱 Current Load, 종료 직전 최대 5개)
+last_heap     : 375MB 400MB 25MB 50MB 75MB  (앱 Current Heap, 종료 직전 최대 5개)
+last_app_log  : 2026-11-10 10:53:45,914 [INFO] [MemoryWorker] Current Heap: 75MB
+key_lines     :
+  >>> [SYSTEM] MEMORY RECOVERED (Cache Cleared) <<<
+  >>> [SYSTEM] MEMORY RECOVERED (Cache Cleared) <<<
+  2026-11-10 10:53:40,271 [INFO] [CpuWorker] Peak reached (50.00%). Starting cooldown...

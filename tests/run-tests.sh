@@ -34,6 +34,12 @@ check "형식 [ts] PROCESS PID STATE CPU MEM RSS THREADS SYS_CPU SYS_MEM LOG_LIN
 r1="$(grep -o 'RSS:[0-9.]*' <<< "$OUT" | head -1 | cut -d: -f2)"; r3="$(grep -o 'RSS:[0-9.]*' <<< "$OUT" | tail -1 | cut -d: -f2)"
 check "RSS 증가 감지 ($r1 → $r3 MB)" awk -v a="$r1" -v b="$r3" 'BEGIN { exit !(b > a + 15) }'
 check "대상 PID 가 가짜 앱" grep -q "PID:$FAKE_PID " <<< "$OUT"
+OUT="$("$ROOT/tools/monitor.sh" --interval 1 --count 2 --header test-exp-1 --csv "$TMP/m.csv" 2>&1)"
+check "--header: 실험 ID·시작 시각·주기·PID 머리줄" \
+    grep -Eq "^# monitor.sh experiment=test-exp-1 start=[0-9-]+ [0-9:]+ interval=1s clk_tck=[0-9]+ pid=$FAKE_PID " <<< "$OUT"
+check "--csv: 머리 + 2행" test "$(wc -l < "$TMP/m.csv")" -eq 3
+check "--csv: 열 이름과 값 형식" bash -c 'head -1 "$1" | grep -qx "ts,epoch,pid,state,cpu_pct,mem_pct,rss_mb,threads,sys_cpu_pct,sys_mem_pct,log_lines" \
+    && sed -n 2p "$1" | grep -Eq "^[0-9-]+ [0-9:]+,[0-9]+,$2,[RSD],[0-9.]+,[0-9.]+,[0-9.]+,[0-9]+,[0-9.]+,[0-9.]+,$"' _ "$TMP/m.csv" "$FAKE_PID"
 stop_fake
 OUT="$("$ROOT/tools/monitor.sh" 2>&1)"; code=$?
 check "프로세스 없음 → NOT_RUNNING, 종료 코드 1" bash -c '[[ $1 -eq 1 ]] && grep -q NOT_RUNNING <<< "$2"' _ "$code" "$OUT"
@@ -61,6 +67,8 @@ check "스레드 3개 (main + worker 2)" grep -q '스레드 3/3 개 sleep' <<< "
 check "CPU 0 · 로그 정지" grep -q '관측: CPU 사용 0 메모리 고정 로그 정지' <<< "$OUT"
 check "보유/대기 관계 추출" bash -c 'grep -q "Worker-Thread-1 holds  Shared_Memory_A" <<< "$1" && grep -q "Worker-Thread-1 waits  Socket_Pool_B" <<< "$1"' _ "$OUT"
 check "결론 DEADLOCK" grep -q '결론: DEADLOCK' <<< "$OUT"
+check "wait-for 그래프 순환 탐지" grep -Eq '순환 대기: Worker-Thread-[12] → Worker-Thread-[12] → Worker-Thread-[12]' <<< "$OUT"
+check "스레드별 스택 덤프 단계 (도구가 없으면 /proc wchan 까지)" bash -c 'grep -q "8. 스레드별 스택 덤프" <<< "$1" && grep -q "wchan=" <<< "$1"' _ "$OUT"
 stop_fake
 start_fake busy 1.5
 OUT="$("$ROOT/tools/diagnose-hang.sh" --pid "$FAKE_PID" --window 1 2>&1)"
@@ -86,4 +94,9 @@ check "Before 행 (33s, SIGKILL)" grep -q '| 256 | 50 | false | 33s | exit 137 (
 check "After 행 (생존)" grep -q '| 512 | 50 | false | 300s | 생존 (관찰 종료) |' <<< "$OUT"
 
 printf '\n결과: %d passed, %d failed\n' "$PASS" "$FAIL"
-[[ $FAIL -eq 0 ]]
+# 리포트의 코드 레벨 개선안을 가짜 앱에 적용한 참고 구현 검증 (tests/run-fix-tests.sh)
+fix_rc=0
+if [[ -f "$ROOT/tests/run-fix-tests.sh" ]]; then
+    printf '\n[개선안 참고 구현 테스트]\n'; bash "$ROOT/tests/run-fix-tests.sh" || fix_rc=1
+fi
+[[ $FAIL -eq 0 && $fix_rc -eq 0 ]]

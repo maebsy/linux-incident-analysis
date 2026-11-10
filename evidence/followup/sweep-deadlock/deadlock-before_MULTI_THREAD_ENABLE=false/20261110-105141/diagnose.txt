@@ -1,0 +1,85 @@
+# diagnose-hang.sh  PID=2054  window=10s  2026-11-10 10:52:23
+
+===== 1. 프로세스 존재 (ps -ef) =====
+$ ps -ef | grep 'agent-leak-app'
+agent-a+    2028    2015  0 10:51 ?        00:00:00 /home/agent-admin/agent-app/agent-leak-app-x86
+agent-a+    2054    2028  2 10:51 ?        00:00:00 /home/agent-admin/agent-app/agent-leak-app-x86
+$ pstree -p 2028 2>/dev/null || true
+agent-leak-app-(2028)---agent-leak-app-(2054)-+-{agent-leak-app-}(2112)
+                                              `-{agent-leak-app-}(2113)
+
+===== 2. 스레드 목록 (ps -L: 스레드별 상태·CPU·커널 대기 지점) =====
+$ ps -L -o pid,tid,stat,pcpu,rss,wchan:20,comm -p 2054
+    PID     TID STAT %CPU   RSS WCHAN                COMMAND
+   2054    2054 SNl   0.1 351164 futex_do_wait       agent-leak-app-
+   2054    2112 SNl   0.9 351164 poll_schedule_timeou agent-leak-app-
+   2054    2113 SNl   1.0 351164 poll_schedule_timeou agent-leak-app-
+
+===== 3. top -H (스레드 단위, 1회 배치 출력) =====
+$ top -H -b -n 1 -p 2054 | sed -n '1,4p;7,20p'
+top - 10:52:23 up 4 days, 20:03,  0 user,  load average: 1.36, 1.30, 1.20
+Threads:   3 total,   0 running,   3 sleeping,   0 stopped,   0 zombie
+%Cpu(s):  1.8 us,  2.4 sy,  0.0 ni, 95.7 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st 
+MiB Mem :  14886.1 total,    202.5 free,   9552.3 used,   5702.1 buff/cache     
+    PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND
+   2054 agent-a+  30  10  504048 351164   9784 S   0.0   2.3   0:00.08 agent-l+
+   2112 agent-a+  30  10  504048 351164   9784 S   0.0   2.3   0:00.37 agent-l+
+   2113 agent-a+  30  10  504048 351164   9784 S   0.0   2.3   0:00.39 agent-l+
+
+===== 4. 10초 간격 스냅샷 비교 (/proc/2054/task/*/stat) =====
+TID      STATE1 STATE2       TICKS1       TICKS2    DELTA
+2054     S      S                 8            8        0
+2112     S      S                37           47       10
+2113     S      S                39           45        6
+
+CPU ticks 변화 합계 : 16  (CLK_TCK=100 → 1.60% CPU)
+RSS                 : 351164kB → 453572kB (변화 102408kB)
+앱 로그 줄 수       : 81 → 88   마지막 수정: 2026-11-10 10:52:22 → 2026-11-10 10:52:33
+마지막 로그 이후     : 0초 동안 새 기록 없음
+
+===== 5. 앱 로그 마지막 기록 =====
+2026-11-10 10:52:22,025 [INFO] [CpuWorker] Current Load: 31.38%
+2026-11-10 10:52:24,202 [INFO] [MemoryWorker] Current Heap: 350MB
+2026-11-10 10:52:25,135 [INFO] [CpuWorker] Current Load: 21.85%
+2026-11-10 10:52:27,235 [INFO] [MemoryWorker] Current Heap: 375MB
+2026-11-10 10:52:28,248 [INFO] [CpuWorker] Current Load: 19.06%
+2026-11-10 10:52:30,267 [INFO] [MemoryWorker] Current Heap: 400MB
+2026-11-10 10:52:31,364 [INFO] [CpuWorker] Current Load: 19.02%
+2026-11-10 10:52:33,312 [INFO] [MemoryWorker] Current Heap: 425MB
+
+===== 6. 락 보유/대기 관계 (로그에서 추출) =====
+
+===== 7. wait-for 그래프 (스레드 → 기다리는 자원을 가진 스레드) 와 순환 탐지 =====
+순환 없음
+
+===== 8. 스레드별 스택 덤프 (코드 레벨에서 어디서 멈췄나) =====
+$ py-spy dump --pid 2054
+Permission Denied: Try running again with elevated permissions by going 'sudo env "PATH=$PATH" !!'
+$ sudo -n py-spy dump --pid 2054
+Process 2054: /home/agent-admin/agent-app/agent-leak-app-x86
+Python v3.10.12 (/home/agent-admin/agent-app/agent-leak-app-x86)
+
+Thread 0x727DE318E080 (active): "MainThread"
+    _wait_for_tstate_lock (threading.py:1116)
+    join (threading.py:1096)
+    run_scenario (os_pbl.py:777)
+    <module> (os_pbl.py:845)
+Thread 0x727DE20596C0 (active): "Thread-1 (increase_memory)"
+    increase_memory (os_pbl.py:602)
+    run (threading.py:953)
+    _bootstrap_inner (threading.py:1016)
+    _bootstrap (threading.py:973)
+Thread 0x727DE18586C0 (active): "Thread-2 (occupy_cpu)"
+    occupy_cpu (os_pbl.py:662)
+    run (threading.py:953)
+    _bootstrap_inner (threading.py:1016)
+    _bootstrap (threading.py:973)
+
+커널 대기 지점 (/proc/2054/task/<tid>: comm · wchan · syscall · stack)
+- tid 2054 agent-leak-app-  wchan=futex_do_wait syscall=?
+- tid 2112 agent-leak-app-  wchan=poll_schedule_timeout.constprop.0 syscall=?
+- tid 2113 agent-leak-app-  wchan=poll_schedule_timeout.constprop.0 syscall=?
+
+===== 판정 =====
+관측: CPU 사용 있음(16 ticks) 메모리 변화 로그 진행 스레드 3/3 개 sleep
+결론: 진행 중 — 멈춘 상태가 아니다.

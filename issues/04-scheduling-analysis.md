@@ -9,6 +9,7 @@ labels: analysis
 
 | 항목 | 값 |
 | --- | --- |
+| 작성 템플릿 | [`.github/ISSUE_TEMPLATE/analysis.md`](../.github/ISSUE_TEMPLATE/analysis.md) — GitHub 에서 New issue 를 누르면 같은 구조로 뜸 |
 | 대상 | 정상 실행(`Healthy System Monitoring`) 시 `[Scheduler]` 가 처리하는 작업 `Thread-A` · `Thread-B` · `Thread-C` |
 | 표본 | **정상 실행 8회** (전용 반복 실행 5회 + OOM·CPU·Deadlock After 실행 3회), 작업 로그 120줄 |
 | 도구 | [`tools/analyze-schedule.sh`](../tools/analyze-schedule.sh) (grep + awk, ms 단위 타임라인·전환 횟수·연속성 계산) |

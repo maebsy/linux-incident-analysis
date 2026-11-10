@@ -1,0 +1,19 @@
+experiment    : cpu-before_CPU_MAX_OCCUPY=60-20261110-104957
+scenario      : cpu-before_CPU_MAX_OCCUPY=60
+env           : MEMORY_LIMIT=512 CPU_MAX_OCCUPY=60 MULTI_THREAD_ENABLE=false
+binary        : agent-leak-app-x86 (launcher PID 28)
+app_pid       : 54  (관제 대상 = 실제 앱 프로세스)
+interval      : 2s
+start         : 2026-11-10 10:49:57
+end           : 2026-11-10 10:50:25
+survival      : 28s
+exit_code     : 143 (128 + SIGTERM)
+status        : exited
+peak_rss      : 17.8MB
+peak_cpu      : 2.0%  (프로세스 실측, 1코어=100%)
+samples       : 12
+last_loads    : 23.11% 26.99% 35.65% 43.66% 52.71%  (앱 Current Load, 종료 직전 최대 5개)
+last_heap     : -  (앱 Current Heap, 종료 직전 최대 5개)
+last_app_log  : 2026-11-10 10:50:24,983 [CRITICAL] [CpuWorker] CPU Threshold Violated! (52.709999999999994%).
+key_lines     :
+  2026-11-10 10:50:24,983 [CRITICAL] [CpuWorker] CPU Threshold Violated! (52.709999999999994%).
