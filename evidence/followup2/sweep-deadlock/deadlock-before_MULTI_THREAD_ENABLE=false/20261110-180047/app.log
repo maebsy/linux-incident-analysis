@@ -1,0 +1,87 @@
+# experiment=deadlock-before_MULTI_THREAD_ENABLE=false-20261110-180047 start=2026-11-10 18:00:47 scenario=deadlock-before_MULTI_THREAD_ENABLE=false env: MEMORY_LIMIT=512 CPU_MAX_OCCUPY=50 MULTI_THREAD_ENABLE=false
+>>> Starting Agent Boot Sequence...
+[1/6] Checking User Account               [OK]
+   ... Running as service user 'agent-admin' (uid=1000)
+[2/6] Verifying Environment Variables     [OK]
+   ... All required Envs correct
+[3/6] Checking Required Files             [OK]
+   ... Verified 'secret.key' with correct key string.
+[4/6] Checking Port Availability          [OK]
+   ... Port 15034 is available.
+[5/6] Verifying Log Permission            [OK]
+   ... Log directory is writable: /var/log/agent-app
+[6/6] Verifying Mission Environment       [OK]
+   ... MEMORY_LIMIT=512MB, CPU_MAX_OCCUPY=50%, MULTI_THREAD_ENABLE=False
+------------------------------------------------------------
+All Boot Checks Passed!
+Agent READY
+2026-11-10 18:00:48,043 [INFO] [SafetyGuard] Process priority lowered (nice=10).
+2026-11-10 18:00:48,043 [INFO] Agent listening at port 15034
+
+==================================================
+ [ Agent Initiate ] Resource Check 
+==================================================
+ [ MEMORY ] Limit: 512MB 		[ OK ]
+ [ CPU    ] Limit: 50%  		[ OK ]
+ [ THREAD ] Concurrency: False 		[ OK ]
+--------------------------------------------------
+ >>> SYSTEM STATUS: STABLE. STARTING WORKLOAD MONITORING...
+==================================================
+
+2026-11-10 18:00:50,050 [INFO] >>> Scenario Selected: [Healthy System Monitoring]
+
+>>> [SYSTEM] ALL CONFIGURATIONS OPTIMAL. RUNNING STABILITY TEST... <<<
+
+2026-11-10 18:00:50,051 [INFO] [Scheduler] Task Scheduler Initialized.
+2026-11-10 18:00:50,051 [INFO] [Scheduler] Registered Tasks: ['Thread-A', 'Thread-B', 'Thread-C']
+2026-11-10 18:00:50,051 [INFO] [Scheduler] Starting task execution...
+2026-11-10 18:00:50,051 [INFO] [Thread-A] Task Started. Calculating... (20%)
+2026-11-10 18:00:50,102 [INFO] [Thread-A] Calculating... (40%)
+2026-11-10 18:00:50,153 [INFO] [Thread-A] Calculating... (60%)
+2026-11-10 18:00:50,203 [INFO] [Thread-A] Calculating... (80%)
+2026-11-10 18:00:50,254 [INFO] [Thread-A] Task Completed. (100%)
+2026-11-10 18:00:50,305 [INFO] [Thread-B] Task Started. Calculating... (20%)
+2026-11-10 18:00:50,356 [INFO] [Thread-B] Calculating... (40%)
+2026-11-10 18:00:50,407 [INFO] [Thread-B] Calculating... (60%)
+2026-11-10 18:00:50,458 [INFO] [Thread-B] Calculating... (80%)
+2026-11-10 18:00:50,508 [INFO] [Thread-B] Task Completed. (100%)
+2026-11-10 18:00:50,559 [INFO] [Thread-C] Task Started. Calculating... (20%)
+2026-11-10 18:00:50,610 [INFO] [Thread-C] Calculating... (40%)
+2026-11-10 18:00:50,661 [INFO] [Thread-C] Calculating... (60%)
+2026-11-10 18:00:50,711 [INFO] [Thread-C] Calculating... (80%)
+2026-11-10 18:00:50,762 [INFO] [Thread-C] Task Completed. (100%)
+2026-11-10 18:00:50,815 [INFO] [Scheduler] All tasks completed.
+2026-11-10 18:00:50,834 [INFO] [MemoryWorker] Current Heap: 25MB
+2026-11-10 18:00:50,834 [INFO] [CpuWorker] Started. Maximum CPU Limit: 50%
+2026-11-10 18:00:50,835 [INFO] [CpuWorker] Current Load: 5.00%
+2026-11-10 18:00:53,866 [INFO] [MemoryWorker] Current Heap: 50MB
+2026-11-10 18:00:53,950 [INFO] [CpuWorker] Current Load: 5.79%
+2026-11-10 18:00:56,914 [INFO] [MemoryWorker] Current Heap: 75MB
+2026-11-10 18:00:57,066 [INFO] [CpuWorker] Current Load: 10.09%
+2026-11-10 18:00:59,946 [INFO] [MemoryWorker] Current Heap: 100MB
+2026-11-10 18:01:00,181 [INFO] [CpuWorker] Current Load: 16.39%
+2026-11-10 18:01:02,994 [INFO] [MemoryWorker] Current Heap: 125MB
+2026-11-10 18:01:03,297 [INFO] [CpuWorker] Current Load: 24.76%
+2026-11-10 18:01:06,042 [INFO] [MemoryWorker] Current Heap: 150MB
+2026-11-10 18:01:06,413 [INFO] [CpuWorker] Current Load: 27.50%
+2026-11-10 18:01:09,091 [INFO] [MemoryWorker] Current Heap: 175MB
+2026-11-10 18:01:09,524 [INFO] [CpuWorker] Current Load: 29.27%
+2026-11-10 18:01:12,126 [INFO] [MemoryWorker] Current Heap: 200MB
+2026-11-10 18:01:12,640 [INFO] [CpuWorker] Current Load: 31.18%
+2026-11-10 18:01:15,176 [INFO] [MemoryWorker] Current Heap: 225MB
+2026-11-10 18:01:15,756 [INFO] [CpuWorker] Current Load: 33.14%
+2026-11-10 18:01:18,228 [INFO] [MemoryWorker] Current Heap: 250MB
+2026-11-10 18:01:18,872 [INFO] [CpuWorker] Current Load: 33.71%
+2026-11-10 18:01:21,282 [INFO] [MemoryWorker] Current Heap: 275MB
+2026-11-10 18:01:21,980 [INFO] [CpuWorker] Current Load: 35.31%
+2026-11-10 18:01:24,324 [INFO] [MemoryWorker] Current Heap: 300MB
+2026-11-10 18:01:25,096 [INFO] [CpuWorker] Current Load: 36.54%
+2026-11-10 18:01:27,358 [INFO] [MemoryWorker] Current Heap: 325MB
+2026-11-10 18:01:28,211 [INFO] [CpuWorker] Current Load: 44.28%
+2026-11-10 18:01:30,321 [INFO] [CpuWorker] Peak reached (50.00%). Starting cooldown...
+2026-11-10 18:01:30,407 [INFO] [MemoryWorker] Current Heap: 350MB
+2026-11-10 18:01:31,326 [INFO] [CpuWorker] Current Load: 50.00%
+2026-11-10 18:01:33,457 [INFO] [MemoryWorker] Current Heap: 375MB
+2026-11-10 18:01:34,462 [INFO] [CpuWorker] Current Load: 40.85%
+2026-11-10 18:01:36,490 [INFO] [MemoryWorker] Current Heap: 400MB
+2026-11-10 18:01:37,578 [INFO] [CpuWorker] Current Load: 31.99%

@@ -1,0 +1,92 @@
+# diagnose-hang.sh  PID=3230  window=10s  2026-11-10 18:01:25
+
+===== 1. 프로세스 존재 (ps -ef) =====
+$ ps -ef | grep 'agent-leak-app'
+agent-a+    3204    3191  0 18:00 ?        00:00:00 /home/agent-admin/agent-app/agent-leak-app-x86
+agent-a+    3230    3204  2 18:00 ?        00:00:00 /home/agent-admin/agent-app/agent-leak-app-x86
+$ pstree -p 3204 2>/dev/null || true
+agent-leak-app-(3204)---agent-leak-app-(3230)-+-{agent-leak-app-}(3288)
+                                              `-{agent-leak-app-}(3289)
+
+===== 2. 스레드 목록 (ps -L: 스레드별 상태·CPU·커널 대기 지점) =====
+$ ps -L -o pid,tid,stat,pcpu,rss,wchan:20,comm -p 3230
+    PID     TID STAT %CPU   RSS WCHAN                COMMAND
+   3230    3230 SNl   0.1 351120 futex_do_wait       agent-leak-app-
+   3230    3288 SNl   1.0 351120 poll_schedule_timeou agent-leak-app-
+   3230    3289 SNl   1.0 351120 poll_schedule_timeou agent-leak-app-
+
+===== 3. top -H (스레드 단위, 1회 배치 출력) =====
+$ top -H -b -n 1 -p 3230 | sed -n '1,4p;7,20p'
+top - 18:01:25 up 5 days,  3:12,  0 user,  load average: 1.69, 1.64, 1.57
+Threads:   3 total,   0 running,   3 sleeping,   0 stopped,   0 zombie
+%Cpu(s): 11.1 us,  8.0 sy,  0.0 ni, 80.2 id,  0.0 wa,  0.0 hi,  0.6 si,  0.0 st 
+MiB Mem :  14886.1 total,    175.1 free,   8763.0 used,   6667.2 buff/cache     
+    PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND
+   3230 agent-a+  30  10  504048 351120   9744 S   0.0   2.3   0:00.08 agent-l+
+   3288 agent-a+  30  10  504048 351120   9744 S   0.0   2.3   0:00.38 agent-l+
+   3289 agent-a+  30  10  504048 351120   9744 S   0.0   2.3   0:00.41 agent-l+
+
+===== 4. 10초 간격 스냅샷 비교 (/proc/3230/task/*/stat) =====
+TID      STATE1 STATE2       TICKS1       TICKS2    DELTA
+3230     S      S                 8            8        0
+3288     S      S                38           49       11
+3289     S      S                41           44        3
+
+CPU ticks 변화 합계 : 14  (CLK_TCK=100 → 1.40% CPU)
+RSS                 : 351120kB → 427932kB (변화 76812kB)
+앱 로그 줄 수       : 81 → 88   마지막 수정: 2026-11-10 18:01:25 → 2026-11-10 18:01:34
+마지막 로그 이후     : 1초 동안 새 기록 없음
+
+===== 5. 앱 로그 마지막 기록 =====
+2026-11-10 18:01:25,175 [INFO] [CpuWorker] Current Load: 18.30%
+2026-11-10 18:01:27,387 [INFO] [MemoryWorker] Current Heap: 350MB
+2026-11-10 18:01:28,289 [INFO] [CpuWorker] Current Load: 15.65%
+2026-11-10 18:01:30,435 [INFO] [MemoryWorker] Current Heap: 375MB
+2026-11-10 18:01:31,404 [INFO] [CpuWorker] Current Load: 11.97%
+2026-11-10 18:01:33,486 [INFO] [MemoryWorker] Current Heap: 400MB
+2026-11-10 18:01:33,515 [INFO] [CpuWorker] Cooldown complete (5.00%). Resuming load increase...
+2026-11-10 18:01:34,520 [INFO] [CpuWorker] Current Load: 5.00%
+
+===== 6. 락 보유/대기 관계 (로그에서 추출) =====
+
+===== 7. wait-for 그래프 (스레드 → 기다리는 자원을 가진 스레드) 와 순환 탐지 =====
+순환 없음
+
+===== 8. 스레드별 스택 덤프 (코드 레벨에서 어디서 멈췄나) =====
+$ py-spy dump --pid 3230
+Permission Denied: Try running again with elevated permissions by going 'sudo env "PATH=$PATH" !!'
+$ sudo -n py-spy dump --pid 3230
+Process 3230: /home/agent-admin/agent-app/agent-leak-app-x86
+Python v3.10.12 (/home/agent-admin/agent-app/agent-leak-app-x86)
+
+Thread 0x7DCE6DAA4080 (active): "MainThread"
+    _wait_for_tstate_lock (threading.py:1116)
+    join (threading.py:1096)
+    run_scenario (os_pbl.py:777)
+    <module> (os_pbl.py:845)
+Thread 0x7DCE6C96F6C0 (active): "Thread-1 (increase_memory)"
+    increase_memory (os_pbl.py:602)
+    run (threading.py:953)
+    _bootstrap_inner (threading.py:1016)
+    _bootstrap (threading.py:973)
+Thread 0x7DCE6A86D6C0 (active): "Thread-2 (occupy_cpu)"
+    occupy_cpu (os_pbl.py:644)
+    run (threading.py:953)
+    _bootstrap_inner (threading.py:1016)
+    _bootstrap (threading.py:973)
+
+스레드 대응표 (이름 · pthread · TID · wchan)
+NAME               PTHREAD          TID      WCHAN
+MainThread         0x7dce6daa4080   3230     futex_do_wait
+Thread-2 (occupy_cpu) 0x7dce6a86d6c0   3289     poll_schedule_timeout.constprop.0
+Thread-1 (increase_memory) 0x7dce6c96f6c0   3288     poll_schedule_timeout.constprop.0
+
+커널 대기 지점 (/proc/3230/task/<tid>: comm · wchan · syscall · stack)
+- tid 3230 agent-leak-app-  wchan=futex_do_wait syscall=?
+- tid 3288 agent-leak-app-  wchan=poll_schedule_timeout.constprop.0 syscall=?
+- tid 3289 agent-leak-app-  wchan=poll_schedule_timeout.constprop.0 syscall=?
+
+===== 판정 =====
+기준: 10초 구간 CPU 증가 ≤ 0 tick · RSS 변화 ≤ 0 kB · 로그 증가 ≤ 0 줄 · WAITING ≥ 2 건
+관측: CPU 사용 있음(14 ticks) 메모리 변화 로그 진행 스레드 3/3 개 sleep
+결론: 진행 중 — 멈춘 상태가 아니다.

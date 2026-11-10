@@ -1,0 +1,6 @@
+$ ps -ef | grep agent-leak
+agent-a+    4264    4251  4 18:08 ?        00:00:00 /home/agent-admin/agent-app/agent-leak-app-x86
+agent-a+    4290    4264  2 18:08 ?        00:00:00 /home/agent-admin/agent-app/agent-leak-app-x86
+
+$ pstree -p 4264
+agent-leak-app-(4264)---agent-leak-app-(4290)

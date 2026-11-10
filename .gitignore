@@ -14,3 +14,4 @@ agent-leak-app-*
 !bin/agent-leak-app-arm64
 agent-app-linux-*
 *.zip
+*.env.bak-*

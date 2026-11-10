@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 360" font-family="'Noto Sans KR','NanumGothic',sans-serif" font-size="15">
+  <title>Wait-for graph — agent-leak-app 교착 (deadlock-before)</title>
+  <defs>
+    <marker id="hold" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#2C63C9"/></marker>
+    <marker id="wait" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#C0392B"/></marker>
+  </defs>
+  <rect width="760" height="360" fill="#ffffff"/>
+  <text x="380" y="28" text-anchor="middle" font-size="18" font-weight="700" fill="#16202B">Wait-for graph — 스레드는 원, 자원(락)은 사각형</text>
+  <!-- threads -->
+  <circle cx="140" cy="180" r="76" fill="#EAF1FB" stroke="#2C63C9" stroke-width="2.5"/>
+  <text x="140" y="175" text-anchor="middle" font-weight="700" font-size="14" fill="#16202B">Worker-Thread-1</text>
+  <text x="140" y="197" text-anchor="middle" font-size="13" fill="#46505D">thread_1_logic :693</text>
+  <circle cx="620" cy="180" r="76" fill="#EAF1FB" stroke="#2C63C9" stroke-width="2.5"/>
+  <text x="620" y="175" text-anchor="middle" font-weight="700" font-size="14" fill="#16202B">Worker-Thread-2</text>
+  <text x="620" y="197" text-anchor="middle" font-size="13" fill="#46505D">thread_2_logic :712</text>
+  <!-- resources -->
+  <rect x="300" y="62" width="160" height="50" rx="6" fill="#FDF6E3" stroke="#B85A12" stroke-width="2.5"/>
+  <text x="380" y="93" text-anchor="middle" font-weight="700" fill="#16202B">Shared_Memory_A</text>
+  <rect x="300" y="248" width="160" height="50" rx="6" fill="#FDF6E3" stroke="#B85A12" stroke-width="2.5"/>
+  <text x="380" y="279" text-anchor="middle" font-weight="700" fill="#16202B">Socket_Pool_B</text>
+  <!-- holds (blue): thread → resource it holds -->
+  <path d="M196,128 C232,96 262,88 298,88" fill="none" stroke="#2C63C9" stroke-width="3" marker-end="url(#hold)"/>
+  <text x="150" y="80" fill="#2C63C9" font-size="13">보유 (00.584)</text>
+  <path d="M564,232 C528,264 498,272 462,272" fill="none" stroke="#2C63C9" stroke-width="3" marker-end="url(#hold)"/>
+  <text x="560" y="290" fill="#2C63C9" font-size="13">보유 (00.584)</text>
+  <!-- waits (red): thread → resource it waits for -->
+  <path d="M196,232 C232,264 262,272 298,272" fill="none" stroke="#C0392B" stroke-width="3" stroke-dasharray="8 5" marker-end="url(#wait)"/>
+  <text x="60" y="290" fill="#C0392B" font-size="13">대기 BLOCKED (02.595)</text>
+  <path d="M564,128 C528,96 498,88 462,88" fill="none" stroke="#C0392B" stroke-width="3" stroke-dasharray="8 5" marker-end="url(#wait)"/>
+  <text x="472" y="70" fill="#C0392B" font-size="13">대기 BLOCKED (02.595)</text>
+  <!-- legend / conclusion -->
+  <text x="380" y="330" text-anchor="middle" font-size="14" fill="#16202B">T1 → (B 를 가진) T2 → (A 를 가진) T1 : 사이클 = 교착 상태</text>
+  <text x="380" y="350" text-anchor="middle" font-size="12" fill="#646D79">시각: 2026-10-12 22:43:00.584 / 02.595 (evidence/deadlock-before/20261012-224253/app.log) · 줄 번호: 스택 덤프(2-5)</text>
+</svg>

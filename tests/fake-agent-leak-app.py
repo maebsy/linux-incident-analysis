@@ -104,3 +104,42 @@ elif mode == "deadlock-timeout":
     t1 = threading.Thread(target=worker, args=("Worker-Thread-1", a, b, "Shared_Memory_A", "Socket_Pool_B"))
     t2 = threading.Thread(target=worker, args=("Worker-Thread-2", b, a, "Socket_Pool_B", "Shared_Memory_A"))
     t1.start(); t2.start(); t1.join()
+elif mode in ("guard-kill", "guard-graceful", "guard-graceful-stuck"):
+    # 리포트(OOM 4장) 제안: MemoryGuard 를 "즉시 SIGKILL" 대신 "경고 → SIGTERM → 정리 → 유예 후 SIGKILL" 로.
+    #   guard-kill            지금 앱과 같은 방식: 한도 도달 즉시 kill(자기 PID, SIGKILL) → exit 137, 정리 로그 없음
+    #   guard-graceful        80% 에서 경고, 100% 에서 SIGTERM → 핸들러가 정리(버퍼 비우기) 후 종료 → exit 143
+    #   guard-graceful-stuck  정리가 끝나지 않으면 유예(GRACE) 뒤 SIGKILL 로 마무리 → exit 137 (유예가 무한하지 않음)
+    import os
+    import signal
+
+    LIMIT_MB, STEP_MB, GRACE = 60, 10, 1.0
+    hoard, pending = [], ["job-%d" % i for i in range(3)]
+
+    def on_term(signum, frame):
+        log("[MemoryGuard] SIGTERM received: cleanup start ({} pending jobs)".format(len(pending)))
+        if mode == "guard-graceful-stuck":
+            while True:          # 정리가 끝나지 않는 상황을 흉내
+                time.sleep(0.1)
+        pending.clear()
+        log("[MemoryGuard] cleanup done: pending=0, exiting")
+        signal.signal(signal.SIGTERM, signal.SIG_DFL)
+        os.kill(os.getpid(), signal.SIGTERM)   # 기본 동작으로 종료 → 128 + 15
+
+    signal.signal(signal.SIGTERM, on_term)
+    warned = False
+    while True:
+        hoard.append(bytearray(STEP_MB * 1024 * 1024))
+        heap = len(hoard) * STEP_MB
+        log("[MemoryWorker] Current Heap: {}MB".format(heap))
+        if heap >= LIMIT_MB * 0.8 and not warned:
+            warned = True
+            log("[MemoryGuard] WARNING heap {}MB >= 80% of {}MB".format(heap, LIMIT_MB))
+        if heap >= LIMIT_MB:
+            if mode == "guard-kill":
+                log("[MemoryGuard] Self-terminating with SIGKILL (no cleanup)")
+                os.kill(os.getpid(), signal.SIGKILL)
+            log("[MemoryGuard] limit reached: SIGTERM, grace {}s".format(GRACE))
+            # 유예 감시: 정리가 GRACE 안에 끝나지 않으면 SIGKILL
+            threading.Timer(GRACE, lambda: (log("[MemoryGuard] grace expired: SIGKILL"), os.kill(os.getpid(), signal.SIGKILL))).start()
+            os.kill(os.getpid(), signal.SIGTERM)
+        time.sleep(0.2)

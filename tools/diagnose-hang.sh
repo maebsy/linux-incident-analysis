@@ -14,6 +14,15 @@
 #    7. 코드 어디서?        스택 덤프         py-spy dump(파이썬 프레임) → gdb thread apply all bt → /proc/<tid>/stack
 #                                             (ptrace 권한이 필요하면 sudo -n 으로 시도, 없으면 wchan/syscall 만)
 #
+#  판정 임계값 (수치로 고정 — 환경변수로 바꿀 수 있다)
+#    관찰 구간      WINDOW=10 초 (--window)        두 스냅샷 사이 간격
+#    CPU 정지       CPU_TICKS_MAX=0                구간 동안 전 스레드 utime+stime 증가 ≤ 0 tick (CLK_TCK=100 → 10ms 미만)
+#    메모리 고정    RSS_DELTA_MAX_KB=0             VmRSS 증가 ≤ 0 kB (감소는 커널의 페이지 회수일 수 있어 진행으로 보지 않음)
+#    로그 정지      LOG_DELTA_MAX=0                앱 로그 줄 수 증가 ≤ 0
+#    순환 대기      MIN_BLOCKED=2                  로그의 "WAITING for" 가 2건 이상 (서로를 기다림)
+#    → 네 조건이 모두 맞으면 DEADLOCK, 순환 대기만 빠지면 HANG, 하나라도 움직이면 "진행 중"
+#    (상시 감지용 1차 기준은 monitor.sh 기록에서 LOG_LINES 30초 이상 동일 + CPU 0 — docs/runbook.md 3절)
+#
 #  CPU 가 0% 인 것만으로는 Deadlock 이라 할 수 없다(그냥 쉬는 중일 수도 있다).
 #  "CPU 0 + 메모리 고정 + 로그 정지 + 모든 스레드가 락에서 sleep + 순환 대기 로그" 가 함께 성립해야 한다.
 # =============================================================================
@@ -21,6 +30,7 @@ set -uo pipefail
 export LC_ALL=C
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PID=""; APP_LOG=""; WINDOW=10; STACK=1; STACK_TIMEOUT="${STACK_TIMEOUT:-20}"
+CPU_TICKS_MAX="${CPU_TICKS_MAX:-0}"; RSS_DELTA_MAX_KB="${RSS_DELTA_MAX_KB:-0}"; LOG_DELTA_MAX="${LOG_DELTA_MAX:-0}"; MIN_BLOCKED="${MIN_BLOCKED:-2}"
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --pid) PID="$2"; shift ;;
@@ -67,10 +77,12 @@ wait_for_cycle() {
 # 스레드별 스택: 파이썬 프레임(py-spy) → 네이티브 프레임(gdb) → 커널 대기 지점(/proc) 순으로, 되는 것까지 남긴다.
 stack_dump() {
     local cmd ran=0
+    local pyspy_out="" gdb_threads=""
     if command -v py-spy >/dev/null 2>&1; then
         for cmd in "py-spy dump --pid $PID" "sudo -n py-spy dump --pid $PID"; do
             echo "\$ $cmd"
-            if timeout "$STACK_TIMEOUT" bash -c "$cmd" 2>&1; then ran=1; break; fi
+            if pyspy_out="$(timeout "$STACK_TIMEOUT" bash -c "$cmd" 2>&1)"; then echo "$pyspy_out"; ran=1; break; fi
+            echo "$pyspy_out"; pyspy_out=""
         done
     else
         echo "(py-spy 없음 → 건너뜀. 설치: pip install py-spy)"
@@ -80,6 +92,23 @@ stack_dump() {
             echo "\$ $cmd"
             if timeout "$STACK_TIMEOUT" bash -c "$cmd" 2>&1 | grep -E '^Thread|^#' ; then ran=1; break; fi
         done
+    fi
+    # 스레드 대응표: py-spy 의 pthread 주소 ↔ gdb 의 LWP(= 커널 TID) ↔ /proc wchan 을 한 표로 (같은 프로세스, 같은 시점)
+    if command -v gdb >/dev/null 2>&1; then
+        for cmd in "gdb -q -batch -p $PID -ex 'info threads'" "sudo -n gdb -q -batch -p $PID -ex 'info threads'"; do
+            gdb_threads="$(timeout "$STACK_TIMEOUT" bash -c "$cmd" 2>/dev/null | grep -E 'Thread 0x[0-9a-f]+ \(LWP [0-9]+\)')" && [[ -n "$gdb_threads" ]] && break
+        done
+    fi
+    echo
+    echo "스레드 대응표 (이름 · pthread · TID · wchan)"
+    if [[ -n "$gdb_threads" ]]; then
+        printf '%-18s %-16s %-8s %s\n' NAME PTHREAD TID WCHAN
+        while read -r addr lwp; do
+            name="$(grep -i "Thread $addr " <<< "$pyspy_out" | sed -E 's/.*: "(.*)"$/\1/' | head -1)"
+            printf '%-18s %-16s %-8s %s\n' "${name:-?}" "$addr" "$lwp" "$(cat "/proc/$PID/task/$lwp/wchan" 2>/dev/null)"
+        done < <(sed -E 's/.*Thread (0x[0-9a-f]+) \(LWP ([0-9]+)\).*/\1 \2/' <<< "$gdb_threads")
+    else
+        echo "(gdb 로 LWP 를 얻지 못함 — 아래 /proc 의 TID · comm 으로 대신 확인)"
     fi
     echo
     echo "커널 대기 지점 (/proc/$PID/task/<tid>: comm · wchan · syscall · stack)"
@@ -147,19 +176,27 @@ if [[ $STACK -eq 1 ]]; then
 fi
 
 section "판정"
+echo "기준: ${WINDOW}초 구간 CPU 증가 ≤ ${CPU_TICKS_MAX} tick · RSS 증가 ≤ ${RSS_DELTA_MAX_KB} kB · 로그 증가 ≤ ${LOG_DELTA_MAX} 줄 · WAITING ≥ ${MIN_BLOCKED} 건"
 blocked="$(grep -c 'WAITING for' "$APP_LOG" 2>/dev/null || echo 0)"
 sleeping="$(awk '$2 == "S" || $2 == "D"' <<< "$s2" | wc -l)"
 threads="$(wc -l <<< "$s2")"
 verdict=()
-[[ $total -eq 0 ]] && verdict+=("CPU 사용 0") || verdict+=("CPU 사용 있음(${total} ticks)")
-[[ $((r2 - r1)) -eq 0 ]] && verdict+=("메모리 고정") || verdict+=("메모리 변화")
-[[ "$l1" == "$l2" ]] && verdict+=("로그 정지") || verdict+=("로그 진행")
+# 임계값과 비교. RSS 는 증가만 본다: 메모리 압박 때 커널이 페이지를 회수하면 멈춘 프로세스도
+# RSS 가 줄어든다(실측 17828 → 17388kB, evidence/followup2). 절댓값으로 보면 교착을 놓친다.
+rss_d=$(( r2 - r1 ))
+cpu_still=0; (( total <= CPU_TICKS_MAX )) && cpu_still=1
+mem_still=0; (( rss_d <= RSS_DELTA_MAX_KB )) && mem_still=1
+log_still=0
+if [[ "$l1" == - || "$l2" == - ]]; then [[ "$l1" == "$l2" ]] && log_still=1; else (( l2 - l1 <= LOG_DELTA_MAX )) && log_still=1; fi
+[[ $cpu_still -eq 1 ]] && verdict+=("CPU 사용 0") || verdict+=("CPU 사용 있음(${total} ticks)")
+[[ $mem_still -eq 1 ]] && verdict+=("메모리 고정") || verdict+=("메모리 변화")
+[[ $log_still -eq 1 ]] && verdict+=("로그 정지") || verdict+=("로그 진행")
 verdict+=("스레드 ${sleeping}/${threads} 개 sleep")
 echo "관측: ${verdict[*]}"
-if [[ $total -eq 0 && "$l1" == "$l2" && $blocked -ge 2 ]]; then
+if [[ $cpu_still -eq 1 && $mem_still -eq 1 && $log_still -eq 1 && $blocked -ge $MIN_BLOCKED ]]; then
     echo "결론: DEADLOCK 의심 — 프로세스는 살아 있으나 모든 스레드가 대기 상태로 진행이 없고, 로그상 서로의 자원을 기다리는 순환 대기($blocked 건)가 있다."
     [[ -n "${cycle:-}" ]] && echo "      $(grep '^순환 대기' <<< "$cycle")"
-elif [[ $total -eq 0 && "$l1" == "$l2" ]]; then
+elif [[ $cpu_still -eq 1 && $mem_still -eq 1 && $log_still -eq 1 ]]; then
     echo "결론: 무응답(HANG) — 진행이 없다. 원인(락/IO/외부 대기)은 스레드 wchan 과 로그로 추가 확인 필요."
 else
     echo "결론: 진행 중 — 멈춘 상태가 아니다."

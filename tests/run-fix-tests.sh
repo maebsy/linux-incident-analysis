@@ -63,9 +63,32 @@ for mode in deadlock-ordered deadlock-timeout; do
     check "진단: 진행 중" grep -q '^결론: 진행 중' <<< "$OUT"
     check "진단: DEADLOCK 아님" test "$(grep -c '^결론: DEADLOCK' <<< "$OUT")" -eq 0
     check "로그 줄 수 증가" test "$(wc -l < "$app_log")" -gt "$before"
-    check "Worker-Thread-1 작업 진행 증가" test "$(grep -c '\[Worker-Thread-1\] PROGRESS:' "$app_log")" -gt "$p1"
-    check "Worker-Thread-2 작업 진행 증가" test "$(grep -c '\[Worker-Thread-2\] PROGRESS:' "$app_log")" -gt "$p2"
+    # 타임아웃 + 무작위 백오프는 한 스레드가 잠시 양보만 할 수 있어, 진단 구간(2초) 뒤에도 최대 5초까지 진행을 기다린다
+    progressed() { local w="$1" before="$2" _; for _ in $(seq 1 25); do
+        [[ $(grep -c "\[$w\] PROGRESS:" "$app_log") -gt $before ]] && return 0; sleep 0.2; done; return 1; }
+    check "Worker-Thread-1 작업 진행 증가" progressed Worker-Thread-1 "$p1"
+    check "Worker-Thread-2 작업 진행 증가" progressed Worker-Thread-2 "$p2"
     stop_fake
 done
+section "MemoryGuard 종료 절차: 즉시 SIGKILL vs 경고 → SIGTERM → 정리 → 유예 후 SIGKILL"
+for mode in guard-kill guard-graceful guard-graceful-stuck; do
+    timeout 20 python3 "$FAKE" "$mode" > "$TMP/$mode.log" 2>&1; code=$?
+    OUT="$(cat "$TMP/$mode.log")"
+    case "$mode" in
+        guard-kill)
+            check "guard-kill: exit 137 (SIGKILL)" test "$code" -eq 137
+            check "guard-kill: 정리 로그 없음" bash -c '! grep -qE "cleanup (start|done)" "$1"' _ "$TMP/$mode.log" ;;
+        guard-graceful)
+            check "guard-graceful: exit 143 (SIGTERM)" test "$code" -eq 143
+            check "guard-graceful: 80% 경고가 한도 도달보다 먼저" bash -c 'w=$(grep -n "WARNING heap" "$1" | cut -d: -f1); l=$(grep -n "limit reached" "$1" | cut -d: -f1); [[ -n $w && -n $l && $w -lt $l ]]' _ "$TMP/$mode.log"
+            check "guard-graceful: 정리 완료 로그 후 종료" grep -q "cleanup done: pending=0" "$TMP/$mode.log"
+            check "guard-graceful: 유예 SIGKILL 이 쓰이지 않음" bash -c '! grep -q "grace expired" "$1"' _ "$TMP/$mode.log" ;;
+        guard-graceful-stuck)
+            check "guard-graceful-stuck: 정리가 안 끝나면 유예 후 SIGKILL (exit 137)" test "$code" -eq 137
+            check "guard-graceful-stuck: grace expired 로그" grep -q "grace expired: SIGKILL" "$TMP/$mode.log" ;;
+    esac
+done
+OUT=""
+
 printf '\n결과: PASS %d, FAIL %d\n' "$PASS" "$FAIL"
 [[ $FAIL -eq 0 ]]

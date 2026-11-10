@@ -1,0 +1,8 @@
+[INFO] MULTI_THREAD_ENABLE=true  실행 1/5
+[INFO] MULTI_THREAD_ENABLE=true  실행 2/5
+[INFO] MULTI_THREAD_ENABLE=true  실행 3/5
+[INFO] MULTI_THREAD_ENABLE=true  실행 4/5
+[INFO] MULTI_THREAD_ENABLE=true  실행 5/5
+| 조건 | 실행 | 종료 | 관찰 종료까지 생존 | DEADLOCK 판정 | 생존 시간 최소 / 중앙 / 최대 | 종료된 실행의 평균 ± 표준편차 | 종료 코드 | 종료 직전 Current Load (마지막 값) |
+| --- | ---: | ---: | ---: | ---: | --- | --- | --- | --- |
+| `MULTI_THREAD_ENABLE=true` | 9 | 0 | 9 | 9 | 40s / 40s / 40s | - |  |   |

@@ -67,6 +67,7 @@ check "스레드 3개 (main + worker 2)" grep -q '스레드 3/3 개 sleep' <<< "
 check "CPU 0 · 로그 정지" grep -q '관측: CPU 사용 0 메모리 고정 로그 정지' <<< "$OUT"
 check "보유/대기 관계 추출" bash -c 'grep -q "Worker-Thread-1 holds  Shared_Memory_A" <<< "$1" && grep -q "Worker-Thread-1 waits  Socket_Pool_B" <<< "$1"' _ "$OUT"
 check "결론 DEADLOCK" grep -q '결론: DEADLOCK' <<< "$OUT"
+check "판정 기준을 수치로 출력" grep -q '^기준: 2초 구간 CPU 증가 ≤ 0 tick · RSS 증가 ≤ 0 kB · 로그 증가 ≤ 0 줄 · WAITING ≥ 2 건' <<< "$OUT"
 check "wait-for 그래프 순환 탐지" grep -Eq '순환 대기: Worker-Thread-[12] → Worker-Thread-[12] → Worker-Thread-[12]' <<< "$OUT"
 check "스레드별 스택 덤프 단계 (도구가 없으면 /proc wchan 까지)" bash -c 'grep -q "8. 스레드별 스택 덤프" <<< "$1" && grep -q "wchan=" <<< "$1"' _ "$OUT"
 stop_fake
@@ -84,6 +85,24 @@ check "등록 순서대로 연속 실행 → FCFS" grep -q 'VERDICT: 비선점 +
 OUT="$("$ROOT/tools/analyze-schedule.sh" "$ROOT/tests/fixtures/schedule-rr.log" 2>&1)"
 check "중간 교대 → Round-Robin" grep -q 'VERDICT: 선점이 관찰됨' <<< "$OUT"
 check "선점 표시" grep -q 'no (선점' <<< "$OUT"
+
+section "apply-env.sh: 적용 · 백업 · 롤백"
+cp "$ROOT/scenarios/cpu-before.env" "$TMP/s.env"
+OUT="$("$ROOT/tools/apply-env.sh" "$TMP/s.env" CPU_MAX_OCCUPY=50 --dry-run 2>&1)"
+check "--dry-run: diff 만 출력, 파일 그대로" bash -c 'grep -q "^+CPU_MAX_OCCUPY=50" <<< "$1" && grep -qx "CPU_MAX_OCCUPY=90" "$2"' _ "$OUT" "$TMP/s.env"
+OUT="$("$ROOT/tools/apply-env.sh" "$TMP/s.env" CPU_MAX_OCCUPY=50 2>&1)"
+check "적용: 값 변경 + 백업 1개" bash -c 'grep -qx "CPU_MAX_OCCUPY=50" "$1" && [[ $(ls "$1".bak-* | wc -l) -eq 1 ]]' _ "$TMP/s.env"
+OUT="$("$ROOT/tools/apply-env.sh" --rollback "$TMP/s.env" 2>&1)"
+check "롤백: 원래 값으로 복원, 백업 정리" bash -c 'cmp -s "$1" "$2" && ! ls "$1".bak-* >/dev/null 2>&1' _ "$TMP/s.env" "$ROOT/scenarios/cpu-before.env"
+
+section "sweep.sh --summary: 생존 시간 통계"
+for i in 1 2 3; do
+    mkdir -p "$TMP/sw/cpu-before_CPU_MAX_OCCUPY=90/r$i"
+    printf 'survival      : %ss\nexit_code     : 143 (128 + SIGTERM)\nstatus        : exited\nlast_loads    : 50.1%% 52.0%%  (앱)\n' $((20 + i * 5)) \
+        > "$TMP/sw/cpu-before_CPU_MAX_OCCUPY=90/r$i/result.txt"
+done
+OUT="$("$ROOT/tools/sweep.sh" --summary "$TMP/sw")"
+check "최소/중앙/최대 + 평균 ± 표준편차 (25 · 30 · 35s)" grep -q '| 25s / 30s / 35s | 30.0s ± 5.0s (n=3) | 143×3' <<< "$OUT"
 
 section "compare.sh"
 mkdir -p "$TMP/ev/oom-before/r1" "$TMP/ev/oom-after/r1"
