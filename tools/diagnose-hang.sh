@@ -2,7 +2,7 @@
 # =============================================================================
 #  diagnose-hang.sh — "살아 있지만 멈춘" 프로세스 진단 (Deadlock 판별)
 #
-#    diagnose-hang.sh [--pid PID] [--app-log FILE] [--window 10]
+#    diagnose-hang.sh [--pid PID] [--app-log FILE] [--window 10] [--no-stack]
 #
 #  판단 흐름 (각 단계의 결과가 다음 단계를 정당화한다)
 #    1. 살아 있는가?        ps -ef            PID 존재 → 크래시가 아니다
@@ -10,6 +10,9 @@
 #    3. 출력이 멈췄는가?    로그 줄 수·mtime  window 동안 새 줄 0 → 진행이 없다
 #    4. 어디서 멈췄는가?    ps -L / top -H    모든 스레드가 S(sleep) + wchan=futex → 락 대기
 #    5. 무엇을 기다리나?    앱 로그 마지막    "WAITING for X (BLOCKED)" 가 서로를 가리키면 순환 대기
+#    6. 순환이 있는가?      wait-for 그래프   '스레드 → 그 자원을 가진 스레드' 간선을 이어 사이클을 찾는다
+#    7. 코드 어디서?        스택 덤프         py-spy dump(파이썬 프레임) → gdb thread apply all bt → /proc/<tid>/stack
+#                                             (ptrace 권한이 필요하면 sudo -n 으로 시도, 없으면 wchan/syscall 만)
 #
 #  CPU 가 0% 인 것만으로는 Deadlock 이라 할 수 없다(그냥 쉬는 중일 수도 있다).
 #  "CPU 0 + 메모리 고정 + 로그 정지 + 모든 스레드가 락에서 sleep + 순환 대기 로그" 가 함께 성립해야 한다.
@@ -17,12 +20,13 @@
 set -uo pipefail
 export LC_ALL=C
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-PID=""; APP_LOG=""; WINDOW=10
+PID=""; APP_LOG=""; WINDOW=10; STACK=1; STACK_TIMEOUT="${STACK_TIMEOUT:-20}"
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --pid) PID="$2"; shift ;;
         --app-log) APP_LOG="$2"; shift ;;
         --window) WINDOW="$2"; shift ;;
+        --no-stack) STACK=0 ;;
         *) echo "[ERROR] 알 수 없는 옵션: $1" >&2; exit 2 ;;
     esac
     shift
@@ -41,6 +45,50 @@ thread_snapshot() {   # tid state utime+stime
     done
 }
 rss_kb() { awk '/^VmRSS:/ {print $2}' "/proc/$PID/status"; }
+
+# 로그의 '보유/대기' 마지막 상태로 wait-for 그래프를 만들고 사이클을 출력한다.
+#   간선 T → U : T 가 기다리는 자원을 U 가 가지고 있다. 사이클이 있으면 서로 영원히 기다린다(순환 대기).
+wait_for_cycle() {
+    grep -aE 'LOCK ACQUIRED|WAITING for|LOCK RELEASED' "$1" | awk '
+        match($0, /\[Worker-Thread-[0-9]+\]/) { t = substr($0, RSTART + 1, RLENGTH - 2) }
+        match($0, /(ACQUIRED|RELEASED|WAITING for):? \[[^]]+\]/) { r = substr($0, RSTART, RLENGTH); sub(/^[^[]*\[/, "", r); sub(/\]$/, "", r) }
+        /LOCK ACQUIRED/ { owner[r] = t; if (wait[t] == r) delete wait[t] }
+        /LOCK RELEASED/ { if (owner[r] == t) delete owner[r] }
+        /WAITING for/   { wait[t] = r }
+        END {
+            for (t in wait) if (wait[t] in owner && owner[wait[t]] != t) { edge[t] = owner[wait[t]]; printf "%s --(%s)--> %s\n", t, wait[t], edge[t] }
+            for (s in edge) {
+                path = s; cur = s; n = 0
+                while ((cur in edge) && n < 20) { cur = edge[cur]; path = path " → " cur; n++; if (cur == s) { print "순환 대기: " path; exit } }
+            }
+        }'
+}
+
+# 스레드별 스택: 파이썬 프레임(py-spy) → 네이티브 프레임(gdb) → 커널 대기 지점(/proc) 순으로, 되는 것까지 남긴다.
+stack_dump() {
+    local cmd ran=0
+    if command -v py-spy >/dev/null 2>&1; then
+        for cmd in "py-spy dump --pid $PID" "sudo -n py-spy dump --pid $PID"; do
+            echo "\$ $cmd"
+            if timeout "$STACK_TIMEOUT" bash -c "$cmd" 2>&1; then ran=1; break; fi
+        done
+    else
+        echo "(py-spy 없음 → 건너뜀. 설치: pip install py-spy)"
+    fi
+    if [[ $ran -eq 0 ]] && command -v gdb >/dev/null 2>&1; then
+        for cmd in "gdb -q -batch -p $PID -ex 'thread apply all bt 12'" "sudo -n gdb -q -batch -p $PID -ex 'thread apply all bt 12'"; do
+            echo "\$ $cmd"
+            if timeout "$STACK_TIMEOUT" bash -c "$cmd" 2>&1 | grep -E '^Thread|^#' ; then ran=1; break; fi
+        done
+    fi
+    echo
+    echo "커널 대기 지점 (/proc/$PID/task/<tid>: comm · wchan · syscall · stack)"
+    for t in /proc/"$PID"/task/*; do
+        printf -- '- tid %s %-16s wchan=%s syscall=%s\n' "${t##*/}" "$(cat "$t/comm" 2>/dev/null)" "$(cat "$t/wchan" 2>/dev/null)" \
+            "$(cut -d' ' -f1 "$t/syscall" 2>/dev/null || echo '?')"
+        { cat "$t/stack" 2>/dev/null || sudo -n cat "$t/stack" 2>/dev/null; } | head -n 6 | sed 's/^/      /'
+    done
+}
 
 echo "# diagnose-hang.sh  PID=$PID  window=${WINDOW}s  $(date '+%Y-%m-%d %H:%M:%S')"
 
@@ -88,6 +136,14 @@ if [[ -n "$APP_LOG" && -r "$APP_LOG" ]]; then
     tail -n 8 "$APP_LOG"
     section "6. 락 보유/대기 관계 (로그에서 추출)"
     grep -aE 'LOCK ACQUIRED|WAITING for' "$APP_LOG" | sed -E 's/.*\[(Worker-Thread-[0-9]+)\] LOCK ACQUIRED: \[([^]]+)\].*/\1 holds  \2/; s/.*\[(Worker-Thread-[0-9]+)\] WAITING for \[([^]]+)\].*/\1 waits  \2/'
+    section "7. wait-for 그래프 (스레드 → 기다리는 자원을 가진 스레드) 와 순환 탐지"
+    cycle="$(wait_for_cycle "$APP_LOG")"
+    echo "${cycle:-순환 없음}"
+fi
+
+if [[ $STACK -eq 1 ]]; then
+    section "8. 스레드별 스택 덤프 (코드 레벨에서 어디서 멈췄나)"
+    stack_dump
 fi
 
 section "판정"
@@ -102,6 +158,7 @@ verdict+=("스레드 ${sleeping}/${threads} 개 sleep")
 echo "관측: ${verdict[*]}"
 if [[ $total -eq 0 && "$l1" == "$l2" && $blocked -ge 2 ]]; then
     echo "결론: DEADLOCK 의심 — 프로세스는 살아 있으나 모든 스레드가 대기 상태로 진행이 없고, 로그상 서로의 자원을 기다리는 순환 대기($blocked 건)가 있다."
+    [[ -n "${cycle:-}" ]] && echo "      $(grep '^순환 대기' <<< "$cycle")"
 elif [[ $total -eq 0 && "$l1" == "$l2" ]]; then
     echo "결론: 무응답(HANG) — 진행이 없다. 원인(락/IO/외부 대기)은 스레드 wchan 과 로그로 추가 확인 필요."
 else

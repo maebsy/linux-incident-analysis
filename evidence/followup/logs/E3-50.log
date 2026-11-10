@@ -1,0 +1,5 @@
+[INFO] CPU_MAX_OCCUPY=50  실행 1/3
+[INFO] CPU_MAX_OCCUPY=50  실행 2/3
+[INFO] CPU_MAX_OCCUPY=50  실행 3/3
+tools/sweep.sh: line 68: syntax error near unexpected token `done'
+tools/sweep.sh: line 68: `done'

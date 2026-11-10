@@ -5,6 +5,15 @@ title: "[Bug] {장애 유형} - {한 줄 요약}"
 labels: bug, incident
 ---
 
+| 항목 | 값 |
+| --- | --- |
+| 대상 | 바이너리 · PID (부모 → 자식) |
+| 환경 | OS · vCPU / 메모리 / swap · 실행 계정 |
+| 재현 조건 | 바꾼 환경변수 (나머지는 기본값) |
+| 재현율 | 발생 수 / 시도 수 (예: 10/10) · 실험 ID |
+| 치명도 | Sev1 / Sev2 / Sev3 — 기준: docs/runbook.md 1절 |
+| 영향 | 서비스 중단 / 지연 / 무응답 |
+
 ## 1. Description (현상 설명)
 - 어떤 현상이 발생했는가?
 - 언제, 어떤 조건(환경변수·실행 계정·버전)에서 발생했는가?
@@ -14,6 +23,8 @@ labels: bug, incident
 - monitor.sh 관제 로그 (수치·추이)
 - 프로그램 실행 로그 핵심 구간 (타임스탬프·PID 포함)
 - 시스템 도구 출력 (ps, top, pstree, /proc …)
+- 무응답(hang)이면 스레드별 스택 덤프 (`tools/diagnose-hang.sh` 8단계: py-spy / gdb / `/proc/<tid>/stack`)
+- 증거 폴더 링크 (실험 ID = 폴더 이름, 각 파일 첫 줄의 `# experiment=…` 와 일치)
 
 ## 3. Root Cause Analysis (원인 분석)
 - 증거를 근거로 한 기술적 원인
@@ -29,3 +40,6 @@ labels: bug, incident
 tools/run-scenario.sh scenarios/<before>.env
 tools/run-scenario.sh scenarios/<after>.env
 ```
+
+## 회고
+- [ ] docs/runbook.md 4절 회고 체크리스트를 채웠다 (탐지가 늦은 이유 · 다르게 할 것 · 알림 개선 · runbook 갱신 여부)

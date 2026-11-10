@@ -8,7 +8,9 @@ __pycache__/
 .DS_Store
 Thumbs.db
 
-# 제공 바이너리는 저장소에 넣지 않는다 (용량·배포 권한)
+# 제공 바이너리는 재현을 위해 bin/ 에만 둔다 (sha256: bin/SHA256SUMS). 그 밖의 위치·압축 파일은 넣지 않는다
 agent-leak-app-*
+!bin/agent-leak-app-x86
+!bin/agent-leak-app-arm64
 agent-app-linux-*
 *.zip

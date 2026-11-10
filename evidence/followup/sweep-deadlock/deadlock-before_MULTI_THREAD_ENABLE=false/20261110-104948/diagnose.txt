@@ -1,0 +1,85 @@
+# diagnose-hang.sh  PID=55  window=10s  2026-11-10 10:50:29
+
+===== 1. 프로세스 존재 (ps -ef) =====
+$ ps -ef | grep 'agent-leak-app'
+agent-a+      29      16  0 10:49 ?        00:00:00 /home/agent-admin/agent-app/agent-leak-app-x86
+agent-a+      55      29  2 10:49 ?        00:00:00 /home/agent-admin/agent-app/agent-leak-app-x86
+$ pstree -p 29 2>/dev/null || true
+agent-leak-app-(29)---agent-leak-app-(55)-+-{agent-leak-app-}(113)
+                                          `-{agent-leak-app-}(114)
+
+===== 2. 스레드 목록 (ps -L: 스레드별 상태·CPU·커널 대기 지점) =====
+$ ps -L -o pid,tid,stat,pcpu,rss,wchan:20,comm -p 55
+    PID     TID STAT %CPU   RSS WCHAN                COMMAND
+     55      55 SNl   0.1 349440 futex_do_wait       agent-leak-app-
+     55     113 SNl   0.7 349440 poll_schedule_timeou agent-leak-app-
+     55     114 SNl   1.1 349440 poll_schedule_timeou agent-leak-app-
+
+===== 3. top -H (스레드 단위, 1회 배치 출력) =====
+$ top -H -b -n 1 -p 55 | sed -n '1,4p;7,20p'
+top - 10:50:29 up 4 days, 20:01,  0 user,  load average: 1.64, 1.19, 1.15
+Threads:   3 total,   0 running,   3 sleeping,   0 stopped,   0 zombie
+%Cpu(s):  4.4 us, 12.6 sy,  0.0 ni, 83.0 id,  0.0 wa,  0.0 hi,  0.0 si,  0.0 st 
+MiB Mem :  14886.1 total,    187.4 free,   9315.9 used,   5969.9 buff/cache     
+    PID USER      PR  NI    VIRT    RES    SHR S  %CPU  %MEM     TIME+ COMMAND
+     55 agent-a+  30  10  504048 349440   8068 S   0.0   2.3   0:00.07 agent-l+
+    113 agent-a+  30  10  504048 349440   8068 S   0.0   2.3   0:00.28 agent-l+
+    114 agent-a+  30  10  504048 349440   8068 S   0.0   2.3   0:00.44 agent-l+
+
+===== 4. 10초 간격 스냅샷 비교 (/proc/55/task/*/stat) =====
+TID      STATE1 STATE2       TICKS1       TICKS2    DELTA
+113      S      S                28           38       10
+114      S      S                44           54       10
+55       S      S                 7            7        0
+
+CPU ticks 변화 합계 : 20  (CLK_TCK=100 → 2.00% CPU)
+RSS                 : 349440kB → 426252kB (변화 76812kB)
+앱 로그 줄 수       : 81 → 87   마지막 수정: 2026-11-10 10:50:29 → 2026-11-10 10:50:38
+마지막 로그 이후     : 1초 동안 새 기록 없음
+
+===== 5. 앱 로그 마지막 기록 =====
+2026-11-10 10:50:28,163 [INFO] [MemoryWorker] Current Heap: 325MB
+2026-11-10 10:50:29,106 [INFO] [CpuWorker] Current Load: 42.70%
+2026-11-10 10:50:31,217 [INFO] [MemoryWorker] Current Heap: 350MB
+2026-11-10 10:50:32,218 [INFO] [CpuWorker] Current Load: 41.04%
+2026-11-10 10:50:34,261 [INFO] [MemoryWorker] Current Heap: 375MB
+2026-11-10 10:50:35,334 [INFO] [CpuWorker] Current Load: 32.25%
+2026-11-10 10:50:37,306 [INFO] [MemoryWorker] Current Heap: 400MB
+2026-11-10 10:50:38,447 [INFO] [CpuWorker] Current Load: 26.81%
+
+===== 6. 락 보유/대기 관계 (로그에서 추출) =====
+
+===== 7. wait-for 그래프 (스레드 → 기다리는 자원을 가진 스레드) 와 순환 탐지 =====
+순환 없음
+
+===== 8. 스레드별 스택 덤프 (코드 레벨에서 어디서 멈췄나) =====
+$ py-spy dump --pid 55
+Permission Denied: Try running again with elevated permissions by going 'sudo env "PATH=$PATH" !!'
+$ sudo -n py-spy dump --pid 55
+Process 55: /home/agent-admin/agent-app/agent-leak-app-x86
+Python v3.10.12 (/home/agent-admin/agent-app/agent-leak-app-x86)
+
+Thread 0x7F6BA4A65080 (active): "MainThread"
+    _wait_for_tstate_lock (threading.py:1116)
+    join (threading.py:1096)
+    run_scenario (os_pbl.py:777)
+    <module> (os_pbl.py:845)
+Thread 0x7F6BA39306C0 (active): "Thread-1 (increase_memory)"
+    increase_memory (os_pbl.py:602)
+    run (threading.py:953)
+    _bootstrap_inner (threading.py:1016)
+    _bootstrap (threading.py:973)
+Thread 0x7F6BA182E6C0 (active): "Thread-2 (occupy_cpu)"
+    occupy_cpu (os_pbl.py:644)
+    run (threading.py:953)
+    _bootstrap_inner (threading.py:1016)
+    _bootstrap (threading.py:973)
+
+커널 대기 지점 (/proc/55/task/<tid>: comm · wchan · syscall · stack)
+- tid 113 agent-leak-app-  wchan=poll_schedule_timeout.constprop.0 syscall=?
+- tid 114 agent-leak-app-  wchan=poll_schedule_timeout.constprop.0 syscall=?
+- tid 55 agent-leak-app-  wchan=futex_do_wait syscall=?
+
+===== 판정 =====
+관측: CPU 사용 있음(20 ticks) 메모리 변화 로그 진행 스레드 3/3 개 sleep
+결론: 진행 중 — 멈춘 상태가 아니다.

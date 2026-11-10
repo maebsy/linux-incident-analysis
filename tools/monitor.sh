@@ -8,14 +8,21 @@
 #    monitor.sh                                   # 1회 측정 (B4-1 과 같은 사용법)
 #    monitor.sh --interval 2 --until-exit         # 2초마다, 프로세스가 사라질 때까지
 #    monitor.sh --interval 2 --app-log app.log    # 앱 로그 줄 수도 함께 기록 (로그 멈춤 탐지)
+#    monitor.sh --interval 1 --until-exit --header oom-before-20261110-103727 --csv monitor.csv
+#                                                 # 머리줄(실험 ID·시작 시각·주기) + 같은 값을 CSV 로도 저장
 #
 #  기록 형식 (key:value, 공백 구분 — grep/awk 로 바로 추출 가능)
 #  [2026-10-12 22:16:45] PROCESS:agent-leak-app PID:512 STATE:S CPU:0.5% MEM:3.1% RSS:250.4MB
 #                        THREADS:1 SYS_CPU:2.0% SYS_MEM:9.0% LOG_LINES:42
 #
+#  머리줄(--header ID): # monitor.sh experiment=<ID> start=<시각> interval=<초>s clk_tck=<HZ> pid=<PID> pattern=<패턴>
+#  CSV(--csv FILE)   : ts,epoch,pid,state,cpu_pct,mem_pct,rss_mb,threads,sys_cpu_pct,sys_mem_pct,log_lines (추세 분석용)
+#
 #  측정 방법
 #    CPU  : /proc/<pid>/stat 의 utime+stime 을 간격 전후로 읽어 차이 / (간격 × CLK_TCK) × 100
 #           → "그 구간" 의 사용률 (1코어 = 100%). ps %cpu 는 실행 이후 평균이라 급상승이 묻힌다.
+#           tick 단위(1/CLK_TCK 초, 보통 10ms)로만 셀 수 있어 양자화 오차가 ±100/(간격×CLK_TCK) %p 이다
+#           (CLK_TCK=100: 0.5s ±2%p · 1s ±1%p · 2s ±0.5%p · 5s ±0.2%p). 권장 2초 — docs/methodology.md 5장
 #    RSS  : /proc/<pid>/status 의 VmRSS (실제 물리 메모리) / MEM% = RSS ÷ MemTotal
 #    STATE: /proc/<pid>/stat 3번째 필드 (R 실행, S 대기, D 디스크 대기, Z 좀비, T 정지)
 #
@@ -32,8 +39,10 @@ UNTIL_EXIT=0
 APP_LOG=""
 COUNT=0
 TARGET_PID=""
+HEADER_ID=""
+CSV=""
 
-usage() { sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,33p' "$0" | sed 's/^# \{0,1\}//'; }
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --interval) INTERVAL="${2:-}"; shift ;;
@@ -42,6 +51,8 @@ while [[ $# -gt 0 ]]; do
         --count) COUNT="${2:-}"; shift ;;
         --pid) TARGET_PID="${2:-}"; shift ;;
         --pattern) PATTERN="${2:-}"; shift ;;
+        --header) HEADER_ID="${2:-}"; shift ;;
+        --csv) CSV="${2:-}"; shift ;;
         -h|--help) usage; exit 0 ;;
         *) echo "[ERROR] 알 수 없는 옵션: $1" >&2; exit 2 ;;
     esac
@@ -83,6 +94,7 @@ sample() {   # $1=pid → 한 줄 출력 (간격 동안 CPU 를 측정하므로 
     t2="$(proc_ticks "$pid")"; read -r s2i s2t < <(sys_ticks)
     if [[ -z "$t1" || -z "$t2" ]]; then
         printf '[%s] PROCESS:%s PID:%s STATE:GONE\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$LABEL" "$pid"
+        [[ -n "$CSV" ]] && printf '%s,%s,%s,GONE,,,,,,,\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$(date +%s)" "$pid" >> "$CSV"
         return 1
     fi
     state="$(proc_state "$pid")"
@@ -96,6 +108,10 @@ sample() {   # $1=pid → 한 줄 출력 (간격 동안 CPU 를 측정하므로 
     printf '[%s] PROCESS:%s PID:%s STATE:%s CPU:%s%% MEM:%s%% RSS:%.1fMB THREADS:%s SYS_CPU:%s%% SYS_MEM:%s%% LOG_LINES:%s\n' \
         "$(date '+%Y-%m-%d %H:%M:%S')" "$LABEL" "$pid" "$state" "$cpu" "$mem" "$(awk -v r="$rss" 'BEGIN{print r/1024}')" \
         "$thr" "$syscpu" "$sysmem" "$lines"
+    if [[ -n "$CSV" ]]; then
+        printf '%s,%s,%s,%s,%s,%s,%.1f,%s,%s,%s,%s\n' "$(date '+%Y-%m-%d %H:%M:%S')" "$(date +%s)" "$pid" "$state" "$cpu" "$mem" \
+            "$(awk -v r="$rss" 'BEGIN{print r/1024}')" "$thr" "$syscpu" "$sysmem" "${lines/-/}" >> "$CSV"
+    fi
 }
 
 pid="$TARGET_PID"
@@ -117,6 +133,13 @@ if [[ -z "$pid" || ! -d "/proc/$pid" ]]; then
     exit 1
 fi
 
+if [[ -n "$HEADER_ID" ]]; then
+    printf '# monitor.sh experiment=%s start=%s interval=%ss clk_tck=%s pid=%s pattern=%s\n' \
+        "$HEADER_ID" "$(date '+%Y-%m-%d %H:%M:%S')" "$( [[ "$INTERVAL" == 0 ]] && echo 1 || echo "$INTERVAL")" "$HZ" "$pid" "$PATTERN"
+fi
+if [[ -n "$CSV" && ! -s "$CSV" ]]; then
+    echo 'ts,epoch,pid,state,cpu_pct,mem_pct,rss_mb,threads,sys_cpu_pct,sys_mem_pct,log_lines' > "$CSV"
+fi
 if [[ "$INTERVAL" == 0 ]]; then sample "$pid"; exit $?; fi
 n=0
 while :; do

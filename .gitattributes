@@ -4,3 +4,4 @@
 *.png binary
 # 증거 원본은 그대로 보존 (diff 에서 줄바꿈 정규화 외 변형 없음)
 evidence/** -diff linguist-generated
+bin/agent-leak-app-* binary

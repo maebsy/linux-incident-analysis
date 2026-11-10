@@ -29,6 +29,24 @@
 
 공통값: 표에 적은 변수 외에는 `MEMORY_LIMIT=512` `CPU_MAX_OCCUPY=50` `MULTI_THREAD_ENABLE=false` ([`../scenarios/`](../scenarios/)).
 
+## 동료 평가 후속 실험 — [`followup/`](followup/) (46회)
+
+같은 바이너리(`bin/agent-leak-app-x86`, sha256 동일)를 **재현 컨테이너**([`../repro/`](../repro/), Ubuntu 24.04 · 2 vCPU · 8GB · swap 없음 · 실행 계정 agent-admin)에서 2026-11-10 에 실행했습니다. 이 실행부터 모든 산출물 첫 줄에 실험 ID(= 폴더 이름)와 시작 시각이 있고, `monitor.csv` 가 함께 남습니다.
+
+| 폴더 | 내용 | 인용한 리포트 |
+| --- | --- | --- |
+| [`followup/deadlock-before/`](followup/deadlock-before/) | `MULTI_THREAD_ENABLE=true` 300초 관찰 → `diagnose.txt` 에 wait-for 순환 + **스레드별 스택 덤프** | Deadlock 2-5, 4장 |
+| [`followup/deadlock-stack/`](followup/deadlock-stack/) | 같은 조건에서 `py-spy dump --locals`, `gdb thread apply all bt` 원본 | Deadlock 2-5 |
+| [`followup/sweep-deadlock/`](followup/sweep-deadlock/summary.md) | true 10회 · false 10회 (회당 40초) → 재현율 | Deadlock 4장 |
+| [`followup/sweep-cpu/`](followup/sweep-cpu/summary.md) | `CPU_MAX_OCCUPY` 50 · 51 · 55 · 60 · 70 · 90 × 3회 | CPU 4장 |
+| [`followup/sweep-oom/`](followup/sweep-oom/summary.md) | `MEMORY_LIMIT` 257 · 300 · 400 · 511 × 1회 (MemoryGuard 분기 경계) | OOM 3장 |
+| [`followup/latency/`](followup/latency/) | 앱 없음 / CPU Before 실행 중 / 대조군(실제 CPU 점유) 지연 CSV | CPU 4장 |
+| [`followup/oom-before/`](followup/oom-before/) · [`followup/oom-after/`](followup/oom-after/) | 1초 주기 + CSV (256MB 34초, 512MB 600초 장기 시계열) | OOM 2-1, 4장 |
+| [`followup/sampling/`](followup/sampling/) | 50% duty 제어 부하를 0.5 · 1 · 2 · 5초 주기로 동시에 관제 (측정 오차 검증, 장애 앱 아님) | 방법론 2-2 |
+| [`followup/logs/`](followup/logs/) | 각 컨테이너의 표준 출력 (run-scenario · sweep 요약) | — |
+
+원래 VM 과 다른 점: `/proc/meminfo` 는 컨테이너가 아니라 호스트(약 15.6GB) 값이라 `SYS_MEM`·`MEM%` 가 VM 기록과 다릅니다(판단은 RSS MB 로 함). 앱 내부 타이머 기반 동작(누수 3.03초 · 25MB, 정지 시점, 부하 상승)은 VM 결과와 같게 재현됐습니다.
+
 ## 폴더 안의 파일
 
 | 파일 | 내용 | 만드는 곳 |
@@ -39,7 +57,8 @@
 | `top.txt` | `top -b -d 5 -p <앱 PID>` (5초 간격 %CPU·RES·NI). 22:51 이후 실행에만 있음 | run-scenario.sh |
 | `trace.txt` | `--trace` 실행만. `strace -f -tt -e trace=kill,tgkill,tkill,exit_group` | run-scenario.sh |
 | `diagnose.txt` | `--max` 까지 살아 있던 실행만. 무응답 진단 결과 | `tools/diagnose-hang.sh` |
-| `result.txt` | 조건·시작/종료·생존 시간·종료 코드(신호 이름)·최대 RSS/CPU·핵심 로그 | run-scenario.sh |
+| `result.txt` | 조건·시작/종료·생존 시간·종료 코드(신호 이름)·최대 RSS/CPU·핵심 로그 (후속 실험부터 실험 ID·앱 PID·주기·종료 직전 부하/힙 N개 추가) | run-scenario.sh |
+| `monitor.csv` | (후속 실험부터) monitor.log 와 같은 샘플의 CSV — `ts,epoch,pid,state,cpu_pct,mem_pct,rss_mb,threads,sys_cpu_pct,sys_mem_pct,log_lines` | `tools/monitor.sh --csv` |
 
 ## 읽을 때 주의할 점
 

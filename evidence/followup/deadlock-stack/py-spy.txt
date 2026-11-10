@@ -1,0 +1,63 @@
+# experiment=deadlock-stack-20261110-105815 start=2026-11-10 10:58:15 pid=11 (MULTI_THREAD_ENABLE=true, 시작 15초 후)
+$ sudo py-spy dump --pid 11 --locals
+Process 11: ./agent-leak-app-x86
+Python v3.10.12 (/home/agent-admin/agent-app/agent-leak-app-x86)
+
+Thread 0x7A0C189FF080 (active): "MainThread"
+    _wait_for_tstate_lock (threading.py:1116)
+        Arguments:
+            self: <Thread at 0x7a0c17db0d00>
+            block: True
+            timeout: -1
+        Locals:
+            lock: <_thread.lock at 0x7a0c17daf640>
+    join (threading.py:1096)
+        Arguments:
+            self: <Thread at 0x7a0c17db0d00>
+            timeout: None
+    trigger_deadlock (os_pbl.py:725)
+        Locals:
+            thread_1_logic: <function at 0x7a0c17dbae60>
+            thread_2_logic: <function at 0x7a0c17dbaef0>
+            t1: <Thread at 0x7a0c17db0d00>
+            t2: <Thread at 0x7a0c17db0f10>
+    run_scenario (os_pbl.py:762)
+        Arguments:
+            self: <ScenariosExecutor at 0x7a0c17db0ca0>
+        Locals:
+            mem_limit: 512
+            cpu_limit: 50
+            thread_mode: True
+    <module> (os_pbl.py:845)
+Thread 0x7A0C1786A6C0 (active): "Worker-Thread-1"
+    thread_1_logic (os_pbl.py:693)
+        Locals:
+            thread_name: "Worker-Thread-1"
+    run (threading.py:953)
+        Arguments:
+            self: <Thread at 0x7a0c17db0d00>
+    _bootstrap_inner (threading.py:1016)
+        Arguments:
+            self: <Thread at 0x7a0c17db0d00>
+    _bootstrap (threading.py:973)
+        Arguments:
+            self: <Thread at 0x7a0c17db0d00>
+Thread 0x7A0C170696C0 (active): "Worker-Thread-2"
+    thread_2_logic (os_pbl.py:712)
+        Locals:
+            thread_name: "Worker-Thread-2"
+    run (threading.py:953)
+        Arguments:
+            self: <Thread at 0x7a0c17db0f10>
+    _bootstrap_inner (threading.py:1016)
+        Arguments:
+            self: <Thread at 0x7a0c17db0f10>
+    _bootstrap (threading.py:973)
+        Arguments:
+            self: <Thread at 0x7a0c17db0f10>
+
+$ sudo py-spy dump --pid 11 --native
+Process 11: ./agent-leak-app-x86
+Python v3.10.12 (/home/agent-admin/agent-app/agent-leak-app-x86)
+
+Error: failed to get os threadid

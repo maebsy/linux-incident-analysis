@@ -48,3 +48,59 @@ elif mode == "deadlock":
     t1 = threading.Thread(target=worker, args=("Worker-Thread-1", a, b, "Shared_Memory_A", "Socket_Pool_B"))
     t2 = threading.Thread(target=worker, args=("Worker-Thread-2", b, a, "Socket_Pool_B", "Shared_Memory_A"))
     t1.start(); t2.start(); t1.join()
+elif mode == "leak-bounded":
+    # 리포트 제안: 캐시/보관 컨테이너에 상한을 두어 메모리 증가를 제한한다.
+    from collections import deque
+
+    hoard = deque(maxlen=5)
+    while True:
+        hoard.append(bytearray(10 * 1024 * 1024))
+        log("[MemoryWorker] Retained: {} blocks, Current Heap: {}MB".format(len(hoard), len(hoard) * 10))
+        time.sleep(0.3)
+elif mode == "deadlock-ordered":
+    # 리포트 제안: 모든 워커에 Shared_Memory_A → Socket_Pool_B 전역 락 순서를 적용한다.
+    a, b = threading.Lock(), threading.Lock()
+
+    def worker(name):
+        while True:
+            with a:
+                log("[AgentWorker][{}] LOCK ACQUIRED: [Shared_Memory_A]. (Holding...)".format(name))
+                with b:
+                    log("[AgentWorker][{}] LOCK ACQUIRED: [Socket_Pool_B]. (Holding...)".format(name))
+                    log("[AgentWorker][{}] PROGRESS: work completed".format(name))
+            time.sleep(0.2)
+
+    t1 = threading.Thread(target=worker, args=("Worker-Thread-1",))
+    t2 = threading.Thread(target=worker, args=("Worker-Thread-2",))
+    t1.start(); t2.start(); t1.join()
+elif mode == "deadlock-timeout":
+    # 리포트 제안: 락 대기 시간 제한 후 보유 락을 해제하고 무작위 지연으로 재시도한다.
+    import random
+
+    a, b = threading.Lock(), threading.Lock()
+    ready = threading.Barrier(2)
+
+    def worker(name, first, second, first_name, second_name):
+        initial = True
+        while True:
+            acquired = False
+            with first:
+                log("[AgentWorker][{}] LOCK ACQUIRED: [{}]. (Holding...)".format(name, first_name))
+                if initial:
+                    ready.wait()
+                    initial = False
+                time.sleep(0.05)
+                log("[AgentWorker][{}] WAITING for [{}]... (Status: BLOCKED)".format(name, second_name))
+                acquired = second.acquire(timeout=1)
+                if acquired:
+                    try:
+                        log("[AgentWorker][{}] PROGRESS: work completed".format(name))
+                    finally:
+                        second.release()
+                else:
+                    log("[AgentWorker][{}] TIMEOUT waiting for [{}]; retry".format(name, second_name))
+            time.sleep(random.uniform(0.05, 0.2) if not acquired else 0.2)
+
+    t1 = threading.Thread(target=worker, args=("Worker-Thread-1", a, b, "Shared_Memory_A", "Socket_Pool_B"))
+    t2 = threading.Thread(target=worker, args=("Worker-Thread-2", b, a, "Socket_Pool_B", "Shared_Memory_A"))
+    t1.start(); t2.start(); t1.join()
